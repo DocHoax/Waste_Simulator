@@ -27,6 +27,27 @@ function getWebSocketUrl() {
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
 }
 
+function getApiBaseUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:5000`;
+  return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
+}
+
+function getStateSignature(state) {
+  const events = Array.isArray(state?.events) ? state.events : [];
+  const latestEvent = events[0];
+
+  return [
+    state?.lastUpdate || '',
+    state?.currentLevel ?? '',
+    state?.status || '',
+    state?.fillRate ?? '',
+    state?.alertThreshold ?? '',
+    latestEvent?.id ?? 0,
+    events.length
+  ].join('|');
+}
+
 function formatTimestamp(timestamp) {
   return new Date(timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -43,7 +64,10 @@ export default function App() {
   const [eventSortOrder, setEventSortOrder] = useState('DESC');
   const socketRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const syncTimerRef = useRef(null);
+  const lastSnapshotRef = useRef('');
   const alertCounterRef = useRef(1);
+  const apiBaseUrl = getApiBaseUrl();
 
   const eventGroups = useMemo(() => ({
     ALL: () => true,
@@ -56,6 +80,41 @@ export default function App() {
   useEffect(() => {
     let closedManually = false;
 
+    const stopPolling = () => {
+      if (syncTimerRef.current) {
+        window.clearInterval(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+    };
+
+    const syncStateFromServer = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/state`, {
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const nextState = await response.json();
+        const nextSignature = getStateSignature(nextState);
+
+        if (nextSignature !== lastSnapshotRef.current) {
+          lastSnapshotRef.current = nextSignature;
+          setSimulatorState(nextState);
+        }
+      } catch (error) {
+        console.error('State sync failed', error);
+      }
+    };
+
+    const startPolling = () => {
+      if (!syncTimerRef.current) {
+        syncTimerRef.current = window.setInterval(syncStateFromServer, 3000);
+      }
+    };
+
     const connect = () => {
       setConnectionStatus('CONNECTING');
       const socket = new WebSocket(getWebSocketUrl());
@@ -63,6 +122,8 @@ export default function App() {
 
       socket.onopen = () => {
         setConnectionStatus('CONNECTED');
+        stopPolling();
+        syncStateFromServer();
       };
 
       socket.onmessage = (event) => {
@@ -71,6 +132,7 @@ export default function App() {
 
           if (message.type === 'STATE_UPDATE') {
             setSimulatorState(message.data);
+            lastSnapshotRef.current = getStateSignature(message.data);
           }
 
           if (message.type === 'EVENT_ADDED') {
@@ -97,6 +159,7 @@ export default function App() {
       socket.onclose = () => {
         setConnectionStatus('DISCONNECTED');
         if (!closedManually) {
+          startPolling();
           reconnectTimerRef.current = window.setTimeout(connect, 2000);
         }
       };
@@ -113,11 +176,12 @@ export default function App() {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
+      stopPolling();
       if (socketRef.current) {
         socketRef.current.close();
       }
     };
-  }, []);
+  }, [apiBaseUrl]);
 
   const sendCommand = (message) => {
     const socket = socketRef.current;

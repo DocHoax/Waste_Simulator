@@ -15,6 +15,19 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStatus(status) {
+  if (typeof status !== 'string') {
+    return null;
+  }
+
+  const normalizedStatus = status.toUpperCase();
+  return ['NORMAL', 'WARNING', 'ALERT'].includes(normalizedStatus) ? normalizedStatus : null;
+}
+
 function roundToOneDecimal(value) {
   return Math.round(value * 10) / 10;
 }
@@ -214,6 +227,73 @@ function setManualLevel(level) {
   updateLevel(level, 'MANUAL_SET', `Level manually set to ${roundToOneDecimal(clamp(level, 0, simulatorState.maxCapacity))}%.`);
 }
 
+function ingestRealtimeData(payload, source = 'realtime') {
+  if (!isPlainObject(payload)) {
+    return false;
+  }
+
+  const hasLevel = payload.currentLevel !== undefined || payload.level !== undefined;
+  const hasThreshold = payload.alertThreshold !== undefined;
+  const previousStatus = simulatorState.status;
+
+  if (typeof payload.binId === 'string' && payload.binId.trim()) {
+    simulatorState.binId = payload.binId.trim();
+  }
+
+  if (typeof payload.location === 'string' && payload.location.trim()) {
+    simulatorState.location = payload.location.trim();
+  }
+
+  if (payload.currentLevel !== undefined || payload.level !== undefined) {
+    const nextLevel = readNumber(payload.currentLevel ?? payload.level, simulatorState.currentLevel);
+    simulatorState.currentLevel = roundToOneDecimal(clamp(nextLevel, 0, simulatorState.maxCapacity));
+  }
+
+  if (payload.fillRate !== undefined) {
+    simulatorState.fillRate = clamp(readNumber(payload.fillRate, simulatorState.fillRate), 0, 100);
+  }
+
+  if (payload.alertThreshold !== undefined) {
+    simulatorState.alertThreshold = clamp(readNumber(payload.alertThreshold, simulatorState.alertThreshold), 1, simulatorState.maxCapacity);
+  }
+
+  const normalizedStatus = normalizeStatus(payload.status);
+
+  if (hasLevel || hasThreshold) {
+    simulatorState.status = getStatusForLevel(simulatorState.currentLevel, simulatorState.alertThreshold);
+  } else if (normalizedStatus) {
+    simulatorState.status = normalizedStatus;
+  }
+
+  if (payload.isRunning !== undefined) {
+    simulatorState.isRunning = Boolean(payload.isRunning);
+  }
+
+  if (payload.emptyCount !== undefined) {
+    simulatorState.emptyCount = Math.max(0, Math.floor(readNumber(payload.emptyCount, simulatorState.emptyCount)));
+  }
+
+  if (payload.alertCount !== undefined) {
+    simulatorState.alertCount = Math.max(0, Math.floor(readNumber(payload.alertCount, simulatorState.alertCount)));
+  }
+
+  if (previousStatus !== simulatorState.status && simulatorState.status === 'ALERT') {
+    simulatorState.alertCount += 1;
+    addEvent('ALERT_TRIGGERED', simulatorState.currentLevel, 'Realtime data pushed the bin into alert.');
+  }
+
+  simulatorState.lastUpdate = new Date().toISOString();
+
+  addEvent(
+    'REALTIME_DATA_ACCEPTED',
+    simulatorState.currentLevel,
+    `Realtime data accepted from ${source}.`
+  );
+
+  broadcastState('REALTIME_DATA_ACCEPTED');
+  return true;
+}
+
 function getEventSlice(limit, offset) {
   return simulatorState.events.slice(offset, offset + limit);
 }
@@ -305,6 +385,20 @@ app.post('/api/control/set-alert-threshold', (request, response) => {
   response.json({ success: true, state: serializeState() });
 });
 
+app.post('/api/control/ingest', (request, response) => {
+  const accepted = ingestRealtimeData(request.body, 'REST');
+
+  if (!accepted) {
+    response.status(400).json({
+      success: false,
+      message: 'Request body must be a JSON object containing realtime data.'
+    });
+    return;
+  }
+
+  response.json({ success: true, state: serializeState() });
+});
+
 webSocketServer.on('connection', (socket) => {
   socket.send(JSON.stringify({
     type: 'STATE_UPDATE',
@@ -333,6 +427,16 @@ webSocketServer.on('connection', (socket) => {
           break;
         case 'SET_ALERT_THRESHOLD':
           setAlertThreshold(message.threshold);
+          break;
+        case 'DATA_UPDATE':
+        case 'INGEST':
+        case 'REALTIME_DATA':
+          if (!ingestRealtimeData(message.data ?? message.payload ?? message, 'WebSocket')) {
+            socket.send(JSON.stringify({
+              type: 'ERROR',
+              message: 'Realtime data payload must be a JSON object.'
+            }));
+          }
           break;
         default:
           socket.send(JSON.stringify({
@@ -372,5 +476,6 @@ module.exports = {
   simulatorState,
   startSimulation,
   stopSimulation,
-  resetSimulator
+  resetSimulator,
+  ingestRealtimeData
 };
