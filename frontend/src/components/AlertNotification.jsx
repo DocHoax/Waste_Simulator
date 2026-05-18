@@ -11,6 +11,7 @@ export default function AlertNotification({ alert, onDismiss }) {
       <div>
         <p className="section-kicker">System alert</p>
         <h3>{alert.title}</h3>
+        <p className="alert-context">{alert.communityName} · {alert.binName}</p>
         <p>{alert.message}</p>
       </div>
       <button type="button" className="dismiss-button" onClick={() => onDismiss(alert.id)}>

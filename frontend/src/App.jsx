@@ -4,47 +4,88 @@ import ControlPanel from './components/ControlPanel';
 import StatusPanel from './components/StatusPanel';
 import HistoryPanel from './components/HistoryPanel';
 import AlertNotification from './components/AlertNotification';
+import CommunityBinForm from './components/CommunityBinForm';
+import BinDirectory from './components/BinDirectory';
+import NotificationPanel from './components/NotificationPanel';
 
-const createFallbackState = () => ({
-  binId: 'BIN-001',
-  location: 'Zone 1',
-  currentLevel: 42,
-  maxCapacity: 100,
-  alertThreshold: 80,
-  fillRate: 5,
-  isRunning: false,
-  lastUpdate: new Date().toISOString(),
-  status: 'NORMAL',
-  events: [],
-  emptyCount: 0,
-  alertCount: 0,
-  clientCount: 0
-});
+const DEFAULT_LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+
+function createFallbackState() {
+  return {
+    bins: [],
+    selectedBinId: null,
+    selectedBin: null,
+    notifications: [],
+    unreadNotificationCount: 0,
+    events: [],
+    totalBins: 0,
+    activeCommunities: 0,
+    runningBinsCount: 0,
+    clientCount: 0
+  };
+}
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:5000`;
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
+  const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
 }
 
 function getApiBaseUrl() {
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:5000`;
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
+  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
 }
 
-function getStateSignature(state) {
+function normalizeState(state) {
+  const bins = Array.isArray(state?.bins) ? state.bins : [];
+  const notifications = Array.isArray(state?.notifications) ? state.notifications : [];
   const events = Array.isArray(state?.events) ? state.events : [];
-  const latestEvent = events[0];
+  const selectedBin = state?.selectedBin || bins.find((bin) => bin.id === state?.selectedBinId) || bins[0] || null;
+  const unreadNotificationCount = Number.isFinite(state?.unreadNotificationCount)
+    ? state.unreadNotificationCount
+    : notifications.filter((notification) => !notification.isRead).length;
+
+  return {
+    ...state,
+    bins,
+    notifications,
+    events,
+    selectedBin,
+    selectedBinId: selectedBin?.id ?? state?.selectedBinId ?? null,
+    unreadNotificationCount,
+    totalBins: Number.isFinite(state?.totalBins) ? state.totalBins : bins.length,
+    activeCommunities: Number.isFinite(state?.activeCommunities)
+      ? state.activeCommunities
+      : new Set(bins.map((bin) => bin.communityName)).size,
+    runningBinsCount: Number.isFinite(state?.runningBinsCount)
+      ? state.runningBinsCount
+      : bins.filter((bin) => bin.isRunning).length,
+    clientCount: Number.isFinite(state?.clientCount) ? state.clientCount : 0
+  };
+}
+
+function getStateSignature(state) {
+  const bins = Array.isArray(state?.bins) ? state.bins : [];
+  const notifications = Array.isArray(state?.notifications) ? state.notifications : [];
+  const events = Array.isArray(state?.events) ? state.events : [];
+  const selectedBin = state?.selectedBin || null;
 
   return [
-    state?.lastUpdate || '',
-    state?.currentLevel ?? '',
-    state?.status || '',
-    state?.fillRate ?? '',
-    state?.alertThreshold ?? '',
-    latestEvent?.id ?? 0,
-    events.length
+    state?.selectedBinId ?? '',
+    bins.length,
+    state?.unreadNotificationCount ?? 0,
+    notifications.length,
+    notifications[0]?.isRead ? 1 : 0,
+    notifications[0]?.id ?? 0,
+    events.length,
+    events[0]?.id ?? 0,
+    state?.runningBinsCount ?? 0,
+    selectedBin?.updatedAt ?? '',
+    selectedBin?.currentLevel ?? '',
+    selectedBin?.status ?? ''
   ].join('|');
 }
 
@@ -56,26 +97,54 @@ function formatTimestamp(timestamp) {
   });
 }
 
+function eventMatchesFilter(event, filter) {
+  switch (filter) {
+    case 'CONTROL':
+      return ['BIN_CREATED', 'BIN_SELECTED', 'SIMULATION_STARTED', 'SIMULATION_STOPPED', 'MANUAL_SET', 'BIN_EMPTIED'].includes(event.type);
+    case 'SETTINGS':
+      return ['SETTINGS_CHANGED'].includes(event.type);
+    case 'STATUS':
+      return ['LEVEL_UPDATE', 'REALTIME_DATA_ACCEPTED', 'BIN_WARNING', 'BIN_NORMAL'].includes(event.type);
+    case 'ALERTS':
+      return ['BIN_FULL', 'NOTIFICATION_ACKNOWLEDGED'].includes(event.type);
+    default:
+      return true;
+  }
+}
+
 export default function App() {
   const [simulatorState, setSimulatorState] = useState(createFallbackState());
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [alerts, setAlerts] = useState([]);
   const [activeEventFilter, setActiveEventFilter] = useState('ALL');
   const [eventSortOrder, setEventSortOrder] = useState('DESC');
+  const [hasInitialSync, setHasInitialSync] = useState(false);
+  const [isSeedingExamples, setIsSeedingExamples] = useState(false);
+  const [adminMode, setAdminMode] = useState(() => window.localStorage.getItem('waste-admin-mode') === 'true');
+  const [adminName, setAdminName] = useState(() => window.localStorage.getItem('waste-admin-name') || 'Local Admin');
   const socketRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const syncTimerRef = useRef(null);
   const lastSnapshotRef = useRef('');
   const alertCounterRef = useRef(1);
+  const seedAttemptedRef = useRef(false);
   const apiBaseUrl = getApiBaseUrl();
 
-  const eventGroups = useMemo(() => ({
-    ALL: () => true,
-    CONTROL: (event) => ['SIMULATION_STARTED', 'SIMULATION_STOPPED', 'MANUAL_SET'].includes(event.type),
-    SETTINGS: (event) => ['SETTINGS_CHANGED'].includes(event.type),
-    STATUS: (event) => ['LEVEL_UPDATE', 'ALERT_TRIGGERED', 'BIN_EMPTIED'].includes(event.type),
-    ALERTS: (event) => ['ALERT_TRIGGERED'].includes(event.type)
-  }), []);
+  const applyServerState = (nextState) => {
+    const normalized = normalizeState(nextState);
+    const nextSignature = getStateSignature(normalized);
+    setHasInitialSync(true);
+
+    if (nextSignature !== lastSnapshotRef.current) {
+      lastSnapshotRef.current = nextSignature;
+      setSimulatorState(normalized);
+    }
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem('waste-admin-mode', String(adminMode));
+    window.localStorage.setItem('waste-admin-name', adminName.trim() || 'Local Admin');
+  }, [adminMode, adminName]);
 
   useEffect(() => {
     let closedManually = false;
@@ -97,13 +166,7 @@ export default function App() {
           return;
         }
 
-        const nextState = await response.json();
-        const nextSignature = getStateSignature(nextState);
-
-        if (nextSignature !== lastSnapshotRef.current) {
-          lastSnapshotRef.current = nextSignature;
-          setSimulatorState(nextState);
-        }
+        applyServerState(await response.json());
       } catch (error) {
         console.error('State sync failed', error);
       }
@@ -130,26 +193,25 @@ export default function App() {
         try {
           const message = JSON.parse(event.data);
 
-          if (message.type === 'STATE_UPDATE') {
-            setSimulatorState(message.data);
-            lastSnapshotRef.current = getStateSignature(message.data);
+          if (message.type === 'APP_STATE_UPDATE' || message.type === 'STATE_UPDATE') {
+            applyServerState(message.data);
           }
 
-          if (message.type === 'EVENT_ADDED') {
-            const nextEvent = message.data;
-            if (nextEvent.type === 'ALERT_TRIGGERED') {
-              const alertId = alertCounterRef.current++;
-              setAlerts((currentAlerts) => [
-                {
-                  id: alertId,
-                  title: 'Alert triggered',
-                  message: nextEvent.message,
-                  level: nextEvent.level,
-                  timestamp: nextEvent.timestamp
-                },
-                ...currentAlerts
-              ].slice(0, 5));
-            }
+          if (message.type === 'NOTIFICATION_ADDED') {
+            const notification = message.data;
+            const alertId = alertCounterRef.current++;
+            setAlerts((currentAlerts) => [
+              {
+                id: alertId,
+                title: `${notification.binName} needs attention`,
+                message: notification.message,
+                communityName: notification.communityName,
+                binName: notification.binName,
+                level: notification.level,
+                timestamp: notification.createdAt
+              },
+              ...currentAlerts
+            ].slice(0, 5));
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message', error);
@@ -183,49 +245,169 @@ export default function App() {
     };
   }, [apiBaseUrl]);
 
-  const sendCommand = (message) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+  const selectedBin = simulatorState.selectedBin || simulatorState.bins.find((bin) => bin.id === simulatorState.selectedBinId) || null;
+
+  const mutateState = async (url, options = {}) => {
+    const { headers: optionHeaders = {}, ...restOptions } = options;
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...optionHeaders
+      },
+      ...restOptions
+    });
+
+    const payload = await response.json();
+
+    if (payload?.state) {
+      applyServerState(payload.state);
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.message || 'Request failed.');
+    }
+
+    return payload;
+  };
+
+  const sendCommand = async (message) => {
+    if (!selectedBin) {
       return;
     }
 
-    socket.send(JSON.stringify(message));
+    const commandMap = {
+      START: `/api/bins/${selectedBin.id}/control/start`,
+      STOP: `/api/bins/${selectedBin.id}/control/stop`,
+      RESET: `/api/bins/${selectedBin.id}/control/reset`,
+      SET_LEVEL: `/api/bins/${selectedBin.id}/control/set-level`,
+      SET_FILL_RATE: `/api/bins/${selectedBin.id}/control/set-fill-rate`,
+      SET_ALERT_THRESHOLD: `/api/bins/${selectedBin.id}/control/set-alert-threshold`
+    };
+
+    const endpoint = commandMap[message.type];
+
+    if (!endpoint) {
+      return;
+    }
+
+    const body = {};
+
+    if (message.type === 'SET_LEVEL') {
+      body.level = message.level;
+    }
+
+    if (message.type === 'SET_FILL_RATE') {
+      body.rate = message.rate;
+    }
+
+    if (message.type === 'SET_ALERT_THRESHOLD') {
+      body.threshold = message.threshold;
+    }
+
+    await mutateState(`${apiBaseUrl}${endpoint}`, {
+      method: 'POST',
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
+    });
+  };
+
+  const handleCreateBin = async (binPayload) => {
+    const payload = await mutateState(`${apiBaseUrl}/api/bins`, {
+      method: 'POST',
+      body: JSON.stringify(binPayload)
+    });
+
+    return payload?.bin || null;
+  };
+
+  const handleSelectBin = async (binId) => {
+    await mutateState(`${apiBaseUrl}/api/bins/${binId}/select`, {
+      method: 'POST'
+    });
+  };
+
+  const handleSeedExampleBins = async () => {
+    if (isSeedingExamples) {
+      return null;
+    }
+
+    setIsSeedingExamples(true);
+
+    try {
+      return await mutateState(`${apiBaseUrl}/api/seed`, {
+        method: 'POST'
+      });
+    } finally {
+      setIsSeedingExamples(false);
+    }
+  };
+
+  const handleAcknowledgeNotification = async (notificationId) => {
+    if (!adminMode) {
+      throw new Error('Switch on admin mode to acknowledge alerts.');
+    }
+
+    await mutateState(`${apiBaseUrl}/api/notifications/${notificationId}/acknowledge`, {
+      method: 'POST',
+      headers: {
+        'X-Admin-Mode': 'true',
+        'X-Admin-Name': adminName.trim() || 'Local Admin'
+      }
+    });
   };
 
   const removeAlert = (alertId) => {
     setAlerts((currentAlerts) => currentAlerts.filter((alert) => alert.id !== alertId));
   };
 
-  const filteredEvents = useMemo(() => {
-    const events = [...simulatorState.events];
-    const filterPredicate = eventGroups[activeEventFilter] || eventGroups.ALL;
-    const visibleEvents = events.filter(filterPredicate);
-
-    return eventSortOrder === 'ASC' ? visibleEvents.reverse() : visibleEvents;
-  }, [activeEventFilter, eventGroups, eventSortOrder, simulatorState.events]);
-
-  const overviewCards = useMemo(() => ([
-    {
-      label: 'Current level',
-      value: `${simulatorState.currentLevel.toFixed(1)}%`,
-      note: simulatorState.status === 'ALERT' ? 'At or above threshold' : 'Live from the backend'
-    },
-    {
-      label: 'Operating mode',
-      value: simulatorState.isRunning ? 'Auto' : 'Paused',
-      note: connectionStatus === 'CONNECTED' ? 'Realtime stream active' : 'Polling fallback active'
-    },
-    {
-      label: 'Alerts',
-      value: simulatorState.alertCount.toString(),
-      note: simulatorState.status === 'ALERT' ? 'Action required' : 'Nominal'
-    },
-    {
-      label: 'Event log',
-      value: simulatorState.events.length.toString(),
-      note: 'Persisted to SQLite'
+  useEffect(() => {
+    if (!hasInitialSync || simulatorState.bins.length > 0 || seedAttemptedRef.current) {
+      return;
     }
-  ]), [connectionStatus, simulatorState.alertCount, simulatorState.currentLevel, simulatorState.events.length, simulatorState.isRunning, simulatorState.status]);
+
+    seedAttemptedRef.current = true;
+    handleSeedExampleBins().catch((error) => {
+      console.error('Failed to seed example bins', error);
+    });
+  }, [hasInitialSync, simulatorState.bins.length]);
+
+  const filteredEvents = useMemo(() => {
+    const visibleEvents = simulatorState.events.filter((event) => {
+      if (selectedBin && event.binId !== selectedBin.id) {
+        return false;
+      }
+
+      return eventMatchesFilter(event, activeEventFilter);
+    });
+
+    return eventSortOrder === 'ASC' ? [...visibleEvents].reverse() : visibleEvents;
+  }, [activeEventFilter, eventSortOrder, selectedBin, simulatorState.events]);
+
+  const overviewCards = useMemo(() => {
+    const selectedLevel = selectedBin ? `${selectedBin.currentLevel.toFixed(1)} / ${selectedBin.maxCapacity.toFixed(1)}` : 'No bin selected';
+
+    return [
+      {
+        label: 'Selected bin',
+        value: selectedBin ? selectedBin.binName : 'Create one',
+        note: selectedBin ? `${selectedBin.communityName} · ${selectedLevel}` : 'Start with a community bin'
+      },
+      {
+        label: 'Communities',
+        value: simulatorState.activeCommunities.toString(),
+        note: 'Unique locations using the registry'
+      },
+      {
+        label: 'Pending alerts',
+        value: simulatorState.unreadNotificationCount.toString(),
+        note: adminMode ? `Admin acknowledgments by ${adminName || 'Local Admin'}` : 'Enable admin mode to acknowledge alerts'
+      },
+      {
+        label: 'Live bins',
+        value: simulatorState.runningBinsCount.toString(),
+        note: connectionStatus === 'CONNECTED' ? 'Realtime updates active' : 'Polling fallback active'
+      }
+    ];
+  }, [connectionStatus, selectedBin, simulatorState.activeCommunities, simulatorState.runningBinsCount, simulatorState.unreadNotificationCount]);
 
   return (
     <div className="app-shell">
@@ -233,10 +415,10 @@ export default function App() {
 
       <header className="dashboard-header">
         <div className="hero-copy-block">
-          <p className="eyebrow">Waste level monitoring</p>
-          <h1>Realtime bin operations in one glance.</h1>
+          <p className="eyebrow">Community waste registry</p>
+          <h1>Every community gets a bin, and admins get the alert.</h1>
           <p className="hero-description">
-            Monitor live state, accept external updates, and keep the system history readable.
+            Create bins for neighborhoods, monitor their fill level in real time, and surface a clear notification the moment one reaches capacity.
           </p>
         </div>
 
@@ -244,9 +426,27 @@ export default function App() {
           <span className={`connection-pill ${connectionStatus.toLowerCase()}`}>
             {connectionStatus}
           </span>
-          <span className={`status-pill status-${simulatorState.status.toLowerCase()}`}>
-            {simulatorState.status}
+          <span className={`status-pill status-${(selectedBin?.status || 'idle').toLowerCase()}`}>
+            {selectedBin ? selectedBin.status : 'NO BIN'}
           </span>
+          <div className="admin-tools">
+            <label className="admin-toggle">
+              <input
+                type="checkbox"
+                checked={adminMode}
+                onChange={(event) => setAdminMode(event.target.checked)}
+              />
+              <span>Admin mode</span>
+            </label>
+            <input
+              type="text"
+              className="admin-name-input"
+              value={adminName}
+              onChange={(event) => setAdminName(event.target.value)}
+              placeholder="Local Admin"
+              disabled={!adminMode}
+            />
+          </div>
         </div>
       </header>
 
@@ -261,19 +461,51 @@ export default function App() {
       </section>
 
       <main className="dashboard-grid">
+        <aside className="left-column">
+          <section className="panel form-panel">
+            <CommunityBinForm
+              onCreateBin={handleCreateBin}
+              onSeedExampleBins={handleSeedExampleBins}
+              isSeedingExamples={isSeedingExamples}
+            />
+          </section>
+
+          <section className="panel directory-panel">
+            <BinDirectory
+              bins={simulatorState.bins}
+              selectedBinId={simulatorState.selectedBinId}
+              onSelectBin={handleSelectBin}
+            />
+          </section>
+        </aside>
+
         <section className="panel hero-panel">
-          <BinVisualizer state={simulatorState} />
+          <BinVisualizer bin={selectedBin} />
         </section>
 
-        <div className="sidebar-stack">
+        <aside className="right-column">
           <section className="panel controls-panel">
-            <ControlPanel state={simulatorState} onSendCommand={sendCommand} />
+            <ControlPanel state={selectedBin} onSendCommand={sendCommand} />
           </section>
 
           <section className="panel status-panel-wrap">
-            <StatusPanel state={simulatorState} connectionStatus={connectionStatus} />
+            <StatusPanel
+              state={simulatorState}
+              connectionStatus={connectionStatus}
+              selectedBin={selectedBin}
+            />
           </section>
-        </div>
+
+          <section className="panel notifications-panel-wrap">
+            <NotificationPanel
+              notifications={simulatorState.notifications}
+              unreadCount={simulatorState.unreadNotificationCount}
+              onAcknowledge={handleAcknowledgeNotification}
+              isAdminMode={adminMode}
+              adminName={adminName}
+            />
+          </section>
+        </aside>
 
         <section className="panel history-panel-wrap">
           <HistoryPanel
@@ -283,6 +515,7 @@ export default function App() {
             onFilterChange={setActiveEventFilter}
             onSortChange={setEventSortOrder}
             formatTimestamp={formatTimestamp}
+            selectedBin={selectedBin}
           />
         </section>
       </main>

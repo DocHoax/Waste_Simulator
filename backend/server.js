@@ -2,10 +2,21 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const WebSocket = require('ws');
-const { hydrateStateFromDatabase, persistEvent, persistStateSnapshot } = require('./db');
+const {
+  hydrateStateFromDatabase,
+  markNotificationAcknowledged,
+  persistEvent,
+  persistNewBin,
+  persistNotification,
+  persistSelectedBinId,
+  persistBin,
+  roundToOneDecimal
+} = require('./db');
 
 const PORT = Number(process.env.PORT || 5000);
 const CHECK_INTERVAL_MS = Number(process.env.CHECK_INTERVAL_MS || 5000);
+const MAX_EVENTS = 1000;
+const MAX_NOTIFICATIONS = 200;
 
 function readNumber(value, fallback) {
   const parsed = Number(value);
@@ -20,69 +31,147 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeStatus(status) {
-  if (typeof status !== 'string') {
-    return null;
-  }
-
-  const normalizedStatus = status.toUpperCase();
-  return ['NORMAL', 'WARNING', 'ALERT'].includes(normalizedStatus) ? normalizedStatus : null;
+function nowIso() {
+  return new Date().toISOString();
 }
 
-function roundToOneDecimal(value) {
-  return Math.round(value * 10) / 10;
-}
-
-function createInitialState() {
-  return {
-    binId: process.env.DEVICE_ID || 'BIN-001',
-    location: process.env.DEVICE_LOCATION || 'Zone 1',
-    currentLevel: 42,
-    maxCapacity: 100,
-    alertThreshold: clamp(readNumber(process.env.DEFAULT_ALERT_THRESHOLD, 80), 1, 100),
-    fillRate: clamp(readNumber(process.env.DEFAULT_FILL_RATE, 5), 0, 100),
-    isRunning: false,
-    lastUpdate: new Date().toISOString(),
-    status: 'NORMAL',
-    events: [],
-    emptyCount: 0,
-    alertCount: 0
-  };
-}
-
-const simulatorState = createInitialState();
-const hydratedState = hydrateStateFromDatabase(simulatorState);
-Object.assign(simulatorState, hydratedState.state);
-
-let nextEventId = hydratedState.nextEventId;
-let simulationInterval = null;
-let webSocketServer = null;
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-const server = http.createServer(app);
-webSocketServer = new WebSocket.Server({ server });
-
-function getStatusForLevel(level, alertThreshold) {
-  if (level >= alertThreshold) {
+function getStatusForLevel(level, alertThreshold, maxCapacity) {
+  if (level >= maxCapacity) {
     return 'ALERT';
   }
 
-  if (level >= 50) {
+  if (level >= alertThreshold) {
     return 'WARNING';
   }
 
   return 'NORMAL';
 }
 
-function serializeState() {
+function createDefaultBinTemplate() {
   return {
-    ...simulatorState,
-    currentLevel: roundToOneDecimal(simulatorState.currentLevel),
-    lastUpdate: simulatorState.lastUpdate,
-    clientCount: webSocketServer ? webSocketServer.clients.size : 0
+    communityName: process.env.DEFAULT_COMMUNITY_NAME || 'Community Hub',
+    binName: process.env.DEVICE_ID || 'BIN-001',
+    location: process.env.DEVICE_LOCATION || 'Zone 1',
+    currentLevel: 42,
+    maxCapacity: 100,
+    alertThreshold: clamp(readNumber(process.env.DEFAULT_ALERT_THRESHOLD, 80), 1, 100),
+    fillRate: clamp(readNumber(process.env.DEFAULT_FILL_RATE, 5), 0, 100),
+    isRunning: false,
+    status: 'NORMAL',
+    emptyCount: 0,
+    alertCount: 0
+  };
+}
+
+function createExampleBinTemplates() {
+  const templates = [
+    {
+      communityName: 'River District',
+      binName: 'BIN-014',
+      location: 'Market road corner',
+      currentLevel: 28,
+      maxCapacity: 100,
+      alertThreshold: 75,
+      fillRate: 4,
+      isRunning: true,
+      emptyCount: 1,
+      alertCount: 0
+    },
+    {
+      communityName: 'North Estate',
+      binName: 'BIN-021',
+      location: 'School gate',
+      currentLevel: 63,
+      maxCapacity: 100,
+      alertThreshold: 80,
+      fillRate: 2.5,
+      isRunning: false,
+      emptyCount: 0,
+      alertCount: 1
+    },
+    {
+      communityName: 'Harbor View',
+      binName: 'BIN-033',
+      location: 'Community hall entrance',
+      currentLevel: 84,
+      maxCapacity: 100,
+      alertThreshold: 82,
+      fillRate: 3.5,
+      isRunning: false,
+      emptyCount: 2,
+      alertCount: 3
+    }
+  ];
+
+  return templates.map((template) => ({
+    ...createDefaultBinTemplate(),
+    ...template,
+    status: getStatusForLevel(template.currentLevel, template.alertThreshold, template.maxCapacity),
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  }));
+}
+
+function createInitialBins() {
+  if (String(process.env.SEED_EXAMPLE_BINS || 'true').toLowerCase() === 'false') {
+    return [createDefaultBinTemplate()];
+  }
+
+  return createExampleBinTemplates();
+}
+
+const hydration = hydrateStateFromDatabase(createInitialBins());
+const appState = {
+  bins: hydration.state.bins,
+  selectedBinId: hydration.state.selectedBinId,
+  notifications: hydration.state.notifications,
+  unreadNotificationCount: hydration.state.unreadNotificationCount,
+  events: hydration.state.events
+};
+
+let nextEventId = hydration.nextEventId;
+const simulationIntervals = new Map();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const server = http.createServer(app);
+const webSocketServer = new WebSocket.Server({ server });
+
+function getSelectedBin() {
+  return appState.bins.find((bin) => bin.id === appState.selectedBinId) || appState.bins[0] || null;
+}
+
+function getBinById(binId) {
+  const numericBinId = Number(binId);
+  return appState.bins.find((bin) => bin.id === numericBinId) || null;
+}
+
+function updateUnreadCount() {
+  appState.unreadNotificationCount = appState.notifications.filter((notification) => !notification.isRead).length;
+}
+
+function trimArray(list, maximumLength) {
+  while (list.length > maximumLength) {
+    list.pop();
+  }
+}
+
+function serializeState() {
+  const selectedBin = getSelectedBin();
+
+  return {
+    bins: appState.bins,
+    selectedBinId: appState.selectedBinId,
+    selectedBin,
+    notifications: appState.notifications,
+    unreadNotificationCount: appState.unreadNotificationCount,
+    events: appState.events,
+    totalBins: appState.bins.length,
+    activeCommunities: new Set(appState.bins.map((bin) => bin.communityName)).size,
+    runningBinsCount: appState.bins.filter((bin) => bin.isRunning).length,
+    clientCount: webSocketServer.clients.size
   };
 }
 
@@ -97,238 +186,452 @@ function broadcastMessage(message) {
 }
 
 function broadcastState(reason) {
-  persistStateSnapshot(simulatorState);
+  const state = serializeState();
+  broadcastMessage({
+    type: 'APP_STATE_UPDATE',
+    reason,
+    data: state
+  });
   broadcastMessage({
     type: 'STATE_UPDATE',
     reason,
-    data: serializeState()
+    data: state
   });
 }
 
-function addEvent(type, level, message, extra = {}) {
-  const event = {
-    id: nextEventId++,
-    type,
-    level: roundToOneDecimal(level),
-    message,
-    timestamp: new Date().toISOString(),
-    ...extra
-  };
+function broadcastNotification(notification) {
+  broadcastMessage({
+    type: 'NOTIFICATION_ADDED',
+    data: notification
+  });
+}
 
-  simulatorState.events.unshift(event);
-  if (simulatorState.events.length > 1000) {
-    simulatorState.events.length = 1000;
-  }
-
+function storeEvent(event) {
+  appState.events.unshift(event);
+  trimArray(appState.events, MAX_EVENTS);
   persistEvent(event);
-
   broadcastMessage({
     type: 'EVENT_ADDED',
     data: event
   });
+}
 
+function createEvent(bin, type, message, extra = {}) {
+  const event = {
+    id: nextEventId++,
+    binId: bin.id,
+    communityName: bin.communityName,
+    binName: bin.binName,
+    type,
+    level: roundToOneDecimal(bin.currentLevel),
+    message,
+    timestamp: nowIso(),
+    ...extra
+  };
+
+  storeEvent(event);
   return event;
 }
 
-function recalculateStatus(sourceEventType, message) {
-  const previousStatus = simulatorState.status;
-  simulatorState.status = getStatusForLevel(simulatorState.currentLevel, simulatorState.alertThreshold);
+function storeNotification(bin, message, level) {
+  const notification = {
+    id: null,
+    binId: bin.id,
+    communityName: bin.communityName,
+    binName: bin.binName,
+    message,
+    level: roundToOneDecimal(level),
+    isRead: false,
+    createdAt: nowIso(),
+    readAt: null
+  };
 
-  if (previousStatus !== simulatorState.status) {
-    if (simulatorState.status === 'ALERT') {
-      simulatorState.alertCount += 1;
-      addEvent('ALERT_TRIGGERED', simulatorState.currentLevel, message || 'Alert threshold reached.');
-    }
+  const insertedId = persistNotification(notification);
+  notification.id = insertedId;
+  appState.notifications.unshift(notification);
+  trimArray(appState.notifications, MAX_NOTIFICATIONS);
+  updateUnreadCount();
+  broadcastNotification(notification);
+  return notification;
+}
 
-    if (previousStatus === 'ALERT' && simulatorState.status !== 'ALERT') {
-      addEvent('SETTINGS_CHANGED', simulatorState.currentLevel, 'Bin returned below alert threshold.');
+function persistAndBroadcast(bin, reason) {
+  persistBin(bin);
+  broadcastState(reason);
+}
+
+function setSelectedBin(binId) {
+  const bin = getBinById(binId);
+  if (!bin) {
+    return null;
+  }
+
+  appState.selectedBinId = bin.id;
+  persistSelectedBinId(bin.id);
+  broadcastState('BIN_SELECTED');
+  return bin;
+}
+
+function stopSimulation(bin, reason, options = {}) {
+  const existingInterval = simulationIntervals.get(bin.id);
+  if (existingInterval) {
+    clearInterval(existingInterval);
+    simulationIntervals.delete(bin.id);
+  }
+
+  if (bin.isRunning) {
+    bin.isRunning = false;
+    bin.status = getStatusForLevel(bin.currentLevel, bin.alertThreshold, bin.maxCapacity);
+    bin.updatedAt = nowIso();
+    persistBin(bin);
+
+    if (!options.skipEvent) {
+      createEvent(bin, 'SIMULATION_STOPPED', reason || 'Simulation stopped.');
     }
   }
 
-  if (sourceEventType) {
-    addEvent(sourceEventType, simulatorState.currentLevel, message || 'State changed.');
-  }
-
-  simulatorState.lastUpdate = new Date().toISOString();
-  broadcastState(sourceEventType);
+  broadcastState(reason || 'SIMULATION_STOPPED');
 }
 
-function updateLevel(nextLevel, sourceEventType, message) {
-  const normalizedLevel = roundToOneDecimal(clamp(nextLevel, 0, simulatorState.maxCapacity));
-  simulatorState.currentLevel = normalizedLevel;
-  recalculateStatus(sourceEventType, message);
-}
-
-function startSimulation() {
-  if (simulatorState.isRunning) {
+function startSimulation(bin, reason = 'Simulation started.') {
+  if (!bin || bin.isRunning) {
     return false;
   }
 
-  simulatorState.isRunning = true;
-  simulatorState.lastUpdate = new Date().toISOString();
-  addEvent('SIMULATION_STARTED', simulatorState.currentLevel, 'Simulation started.');
+  bin.isRunning = true;
+  bin.updatedAt = nowIso();
+  persistBin(bin);
+  createEvent(bin, 'SIMULATION_STARTED', reason);
   broadcastState('SIMULATION_STARTED');
 
-  simulationInterval = setInterval(() => {
-    const increment = simulatorState.fillRate * (CHECK_INTERVAL_MS / 60000);
-    const nextLevel = clamp(simulatorState.currentLevel + increment, 0, simulatorState.maxCapacity);
-
-    if (nextLevel >= simulatorState.maxCapacity) {
-      updateLevel(nextLevel, 'LEVEL_UPDATE', 'Bin reached maximum capacity.');
-      stopSimulation('Maximum capacity reached.');
+  const interval = setInterval(() => {
+    const currentBin = getBinById(bin.id);
+    if (!currentBin) {
+      clearInterval(interval);
+      simulationIntervals.delete(bin.id);
       return;
     }
 
-    updateLevel(nextLevel, 'LEVEL_UPDATE', 'Automatic fill update.');
+    if (!currentBin.isRunning) {
+      clearInterval(interval);
+      simulationIntervals.delete(bin.id);
+      return;
+    }
+
+    const increment = currentBin.fillRate * (CHECK_INTERVAL_MS / 60000);
+    applyLevelUpdate(currentBin, currentBin.currentLevel + increment, 'LEVEL_UPDATE', 'Automatic fill update.');
   }, CHECK_INTERVAL_MS);
 
+  simulationIntervals.set(bin.id, interval);
   return true;
 }
 
-function stopSimulation(reason = 'Simulation stopped.') {
-  if (simulationInterval) {
-    clearInterval(simulationInterval);
-    simulationInterval = null;
+function applyLevelUpdate(bin, nextLevel, sourceEventType, message) {
+  const safeNextLevel = readNumber(nextLevel, bin.currentLevel);
+  const previousLevel = bin.currentLevel;
+  const previousStatus = bin.status;
+  const wasFull = previousLevel >= bin.maxCapacity;
+
+  bin.currentLevel = roundToOneDecimal(clamp(safeNextLevel, 0, bin.maxCapacity));
+  bin.status = getStatusForLevel(bin.currentLevel, bin.alertThreshold, bin.maxCapacity);
+  bin.updatedAt = nowIso();
+
+  if (bin.currentLevel >= bin.maxCapacity && !wasFull) {
+    bin.alertCount += 1;
+    createEvent(bin, 'BIN_FULL', 'Bin reached full capacity and needs emptying.');
+    storeNotification(bin, `Bin ${bin.binName} is full. Empty it now.`, bin.currentLevel);
+    if (bin.isRunning) {
+      stopSimulation(bin, 'Stopped after reaching full capacity.', { skipEvent: true });
+    }
+  } else if (bin.status === 'WARNING' && previousStatus !== 'WARNING') {
+    createEvent(bin, 'BIN_WARNING', 'Bin reached the alert threshold.');
+  } else if (bin.status === 'NORMAL' && previousStatus !== 'NORMAL') {
+    createEvent(bin, 'BIN_NORMAL', 'Bin returned to normal operating range.');
   }
 
-  if (simulatorState.isRunning) {
-    simulatorState.isRunning = false;
-    simulatorState.lastUpdate = new Date().toISOString();
-    addEvent('SIMULATION_STOPPED', simulatorState.currentLevel, reason);
-    broadcastState('SIMULATION_STOPPED');
-  }
-}
-
-function resetSimulator() {
-  stopSimulation('Simulation reset.');
-  simulatorState.currentLevel = 0;
-  simulatorState.status = 'NORMAL';
-  simulatorState.lastUpdate = new Date().toISOString();
-  simulatorState.emptyCount += 1;
-  addEvent('BIN_EMPTIED', simulatorState.currentLevel, 'Bin emptied and simulation reset.');
-  broadcastState('BIN_EMPTIED');
-}
-
-function setFillRate(rate) {
-  simulatorState.fillRate = clamp(readNumber(rate, simulatorState.fillRate), 0, 100);
-  simulatorState.lastUpdate = new Date().toISOString();
-  addEvent('SETTINGS_CHANGED', simulatorState.currentLevel, `Fill rate set to ${simulatorState.fillRate}% per minute.`);
-  broadcastState('SETTINGS_CHANGED');
-}
-
-function setAlertThreshold(threshold) {
-  const previousStatus = simulatorState.status;
-  simulatorState.alertThreshold = clamp(readNumber(threshold, simulatorState.alertThreshold), 1, simulatorState.maxCapacity);
-  simulatorState.lastUpdate = new Date().toISOString();
-  simulatorState.status = getStatusForLevel(simulatorState.currentLevel, simulatorState.alertThreshold);
-  addEvent('SETTINGS_CHANGED', simulatorState.currentLevel, `Alert threshold set to ${simulatorState.alertThreshold}%.`);
-
-  if (simulatorState.status === 'ALERT' && previousStatus !== 'ALERT') {
-    simulatorState.alertCount += 1;
-    addEvent('ALERT_TRIGGERED', simulatorState.currentLevel, 'Alert threshold reached after threshold update.');
+  if (sourceEventType) {
+    createEvent(bin, sourceEventType, message || 'Level changed.');
   }
 
-  broadcastState('SETTINGS_CHANGED');
+  persistAndBroadcast(bin, sourceEventType || 'LEVEL_CHANGED');
 }
 
-function setManualLevel(level) {
-  updateLevel(level, 'MANUAL_SET', `Level manually set to ${roundToOneDecimal(clamp(level, 0, simulatorState.maxCapacity))}%.`);
+function applySettingsUpdate(bin, updates, eventType, message) {
+  if (updates.communityName !== undefined) {
+    bin.communityName = updates.communityName;
+  }
+
+  if (updates.binName !== undefined) {
+    bin.binName = updates.binName;
+  }
+
+  if (updates.location !== undefined) {
+    bin.location = updates.location;
+  }
+
+  if (updates.fillRate !== undefined) {
+    bin.fillRate = readNumber(updates.fillRate, bin.fillRate);
+  }
+
+  if (updates.alertThreshold !== undefined) {
+    bin.alertThreshold = readNumber(updates.alertThreshold, bin.alertThreshold);
+  }
+
+  if (updates.currentLevel !== undefined) {
+    bin.currentLevel = readNumber(updates.currentLevel, bin.currentLevel);
+  }
+
+  if (updates.isRunning !== undefined) {
+    bin.isRunning = Boolean(updates.isRunning);
+  }
+
+  bin.updatedAt = nowIso();
+
+  bin.alertThreshold = clamp(roundToOneDecimal(bin.alertThreshold), 1, bin.maxCapacity);
+  bin.fillRate = clamp(roundToOneDecimal(bin.fillRate), 0, 100);
+  bin.currentLevel = clamp(roundToOneDecimal(bin.currentLevel), 0, bin.maxCapacity);
+  bin.status = getStatusForLevel(bin.currentLevel, bin.alertThreshold, bin.maxCapacity);
+
+  if (eventType) {
+    createEvent(bin, eventType, message || 'Settings updated.');
+  }
+
+  persistAndBroadcast(bin, eventType || 'SETTINGS_CHANGED');
 }
 
-function ingestRealtimeData(payload, source = 'realtime') {
+function resetBin(bin, reason = 'Bin emptied and simulation reset.') {
+  stopSimulation(bin, reason, { skipEvent: true });
+  bin.currentLevel = 0;
+  bin.status = 'NORMAL';
+  bin.emptyCount += 1;
+  bin.updatedAt = nowIso();
+  createEvent(bin, 'BIN_EMPTIED', reason);
+  persistAndBroadcast(bin, 'BIN_EMPTIED');
+}
+
+function createBin(payload) {
   if (!isPlainObject(payload)) {
-    return false;
+    return null;
   }
 
-  const hasLevel = payload.currentLevel !== undefined || payload.level !== undefined;
-  const hasThreshold = payload.alertThreshold !== undefined;
-  const previousStatus = simulatorState.status;
+  const communityName = String(payload.communityName || payload.community_name || '').trim();
+  const binName = String(payload.binName || payload.bin_name || '').trim();
+  const location = String(payload.location || '').trim();
 
-  if (typeof payload.binId === 'string' && payload.binId.trim()) {
-    simulatorState.binId = payload.binId.trim();
+  if (!communityName || !binName || !location) {
+    return { error: 'communityName, binName, and location are required.' };
+  }
+
+  const maxCapacity = clamp(readNumber(payload.maxCapacity, 100), 1, 100);
+  const currentLevel = clamp(readNumber(payload.currentLevel, 0), 0, maxCapacity);
+  const alertThreshold = clamp(readNumber(payload.alertThreshold, 80), 1, maxCapacity);
+  const fillRate = clamp(readNumber(payload.fillRate, 5), 0, 100);
+  const isRunning = Boolean(payload.isRunning);
+
+  const bin = {
+    id: null,
+    communityName,
+    binName,
+    location,
+    currentLevel,
+    maxCapacity,
+    alertThreshold,
+    fillRate,
+    isRunning,
+    status: getStatusForLevel(currentLevel, alertThreshold, maxCapacity),
+    emptyCount: 0,
+    alertCount: 0,
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+
+  const insertedId = persistNewBin(bin);
+  bin.id = insertedId;
+  appState.bins.unshift(bin);
+  setSelectedBin(bin.id);
+  createEvent(bin, 'BIN_CREATED', `Community ${communityName} created ${binName}.`);
+  broadcastState('BIN_CREATED');
+
+  if (isRunning) {
+    startSimulation(bin, 'Simulation started for new bin.');
+  }
+
+  return bin;
+}
+
+function ingestRealtimeData(bin, payload, source = 'realtime') {
+  if (!bin || !isPlainObject(payload)) {
+    return { error: 'realtime payload must be a JSON object.' };
+  }
+
+  const updates = {};
+  const previousLevel = bin.currentLevel;
+  const previousStatus = bin.status;
+
+  if (typeof payload.communityName === 'string' && payload.communityName.trim()) {
+    updates.communityName = payload.communityName.trim();
+  }
+
+  if (typeof payload.binName === 'string' && payload.binName.trim()) {
+    updates.binName = payload.binName.trim();
   }
 
   if (typeof payload.location === 'string' && payload.location.trim()) {
-    simulatorState.location = payload.location.trim();
-  }
-
-  if (payload.currentLevel !== undefined || payload.level !== undefined) {
-    const nextLevel = readNumber(payload.currentLevel ?? payload.level, simulatorState.currentLevel);
-    simulatorState.currentLevel = roundToOneDecimal(clamp(nextLevel, 0, simulatorState.maxCapacity));
+    updates.location = payload.location.trim();
   }
 
   if (payload.fillRate !== undefined) {
-    simulatorState.fillRate = clamp(readNumber(payload.fillRate, simulatorState.fillRate), 0, 100);
+    updates.fillRate = clamp(readNumber(payload.fillRate, bin.fillRate), 0, 100);
   }
 
   if (payload.alertThreshold !== undefined) {
-    simulatorState.alertThreshold = clamp(readNumber(payload.alertThreshold, simulatorState.alertThreshold), 1, simulatorState.maxCapacity);
+    updates.alertThreshold = clamp(readNumber(payload.alertThreshold, bin.alertThreshold), 1, bin.maxCapacity);
   }
 
-  const normalizedStatus = normalizeStatus(payload.status);
-
-  if (hasLevel || hasThreshold) {
-    simulatorState.status = getStatusForLevel(simulatorState.currentLevel, simulatorState.alertThreshold);
-  } else if (normalizedStatus) {
-    simulatorState.status = normalizedStatus;
+  if (payload.currentLevel !== undefined || payload.level !== undefined) {
+    updates.currentLevel = clamp(readNumber(payload.currentLevel ?? payload.level, bin.currentLevel), 0, bin.maxCapacity);
   }
 
   if (payload.isRunning !== undefined) {
-    simulatorState.isRunning = Boolean(payload.isRunning);
+    updates.isRunning = Boolean(payload.isRunning);
   }
 
-  if (payload.emptyCount !== undefined) {
-    simulatorState.emptyCount = Math.max(0, Math.floor(readNumber(payload.emptyCount, simulatorState.emptyCount)));
+  Object.assign(bin, updates, {
+    updatedAt: nowIso()
+  });
+
+  bin.alertThreshold = clamp(roundToOneDecimal(bin.alertThreshold), 1, bin.maxCapacity);
+  bin.fillRate = clamp(roundToOneDecimal(bin.fillRate), 0, 100);
+  bin.currentLevel = clamp(roundToOneDecimal(bin.currentLevel), 0, bin.maxCapacity);
+  bin.status = getStatusForLevel(bin.currentLevel, bin.alertThreshold, bin.maxCapacity);
+
+  if (bin.currentLevel >= bin.maxCapacity && previousLevel < bin.maxCapacity) {
+    bin.alertCount += 1;
+    createEvent(bin, 'BIN_FULL', 'Bin reached full capacity and needs emptying.');
+    storeNotification(bin, `Bin ${bin.binName} is full. Empty it now.`, bin.currentLevel);
+    if (bin.isRunning) {
+      stopSimulation(bin, 'Stopped after reaching full capacity.', { skipEvent: true });
+    }
+  } else if (bin.status === 'WARNING' && previousStatus !== 'WARNING') {
+    createEvent(bin, 'BIN_WARNING', 'Bin reached the alert threshold.');
+  } else if (bin.status === 'NORMAL' && previousStatus !== 'NORMAL') {
+    createEvent(bin, 'BIN_NORMAL', 'Bin returned to normal operating range.');
   }
 
-  if (payload.alertCount !== undefined) {
-    simulatorState.alertCount = Math.max(0, Math.floor(readNumber(payload.alertCount, simulatorState.alertCount)));
+  createEvent(bin, 'REALTIME_DATA_ACCEPTED', `Realtime data accepted from ${source}.`, { source });
+  persistAndBroadcast(bin, 'REALTIME_DATA_ACCEPTED');
+  return bin;
+}
+
+function buildBinsResponse() {
+  return appState.bins;
+}
+
+function getNotificationById(notificationId) {
+  const numericNotificationId = Number(notificationId);
+  return appState.notifications.find((notification) => notification.id === numericNotificationId) || null;
+}
+
+function isAdminRequest(request) {
+  const adminFlag = request.headers['x-admin-mode'] ?? request.body?.isAdmin;
+  return ['1', 'true', 'yes', 'admin'].includes(String(adminFlag || '').trim().toLowerCase());
+}
+
+function getAdminName(request) {
+  const requestedName = String(request.headers['x-admin-name'] || request.body?.adminName || 'Local Admin').trim();
+  return requestedName.slice(0, 80) || 'Local Admin';
+}
+
+function acknowledgeNotification(notification, adminName) {
+  if (!notification) {
+    return null;
   }
 
-  if (previousStatus !== simulatorState.status && simulatorState.status === 'ALERT') {
-    simulatorState.alertCount += 1;
-    addEvent('ALERT_TRIGGERED', simulatorState.currentLevel, 'Realtime data pushed the bin into alert.');
+  if (notification.isRead) {
+    return notification;
   }
 
-  simulatorState.lastUpdate = new Date().toISOString();
+  const acknowledgedAt = nowIso();
+  notification.isRead = true;
+  notification.readAt = acknowledgedAt;
+  notification.acknowledgedAt = acknowledgedAt;
+  notification.acknowledgedBy = adminName;
+  markNotificationAcknowledged(notification.id, adminName, acknowledgedAt);
+  updateUnreadCount();
 
-  addEvent(
-    'REALTIME_DATA_ACCEPTED',
-    simulatorState.currentLevel,
-    `Realtime data accepted from ${source}.`
+  const relatedBin = getBinById(notification.binId);
+  if (relatedBin) {
+    createEvent(
+      relatedBin,
+      'NOTIFICATION_ACKNOWLEDGED',
+      `Notification acknowledged by ${adminName}.`,
+      {
+        notificationId: notification.id,
+        acknowledgedBy: adminName,
+        acknowledgedAt
+      }
+    );
+  }
+
+  broadcastState('NOTIFICATION_ACKNOWLEDGED');
+  return notification;
+}
+
+function seedExampleBins() {
+  const existingKeys = new Set(
+    appState.bins.map((bin) => `${bin.communityName.toLowerCase()}::${bin.binName.toLowerCase()}`)
   );
 
-  broadcastState('REALTIME_DATA_ACCEPTED');
-  return true;
+  const createdBins = createExampleBinTemplates()
+    .filter((template) => !existingKeys.has(`${template.communityName.toLowerCase()}::${template.binName.toLowerCase()}`))
+    .map((template) => {
+    const bin = {
+      ...template,
+      id: null,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      status: getStatusForLevel(template.currentLevel, template.alertThreshold, template.maxCapacity)
+    };
+
+    const insertedId = persistNewBin(bin);
+    bin.id = insertedId;
+    appState.bins.push(bin);
+    createEvent(bin, 'BIN_CREATED', `Seeded example bin ${bin.binName} for ${bin.communityName}.`, {
+      source: 'seed'
+    });
+
+    if (bin.isRunning) {
+      startSimulation(bin, 'Simulation started for seeded example bin.');
+    }
+
+    return bin;
+  });
+
+  if (!appState.selectedBinId && createdBins[0]) {
+    appState.selectedBinId = createdBins[0].id;
+    persistSelectedBinId(createdBins[0].id);
+  }
+
+  broadcastState('EXAMPLE_BINS_SEEDED');
+  return createdBins;
 }
 
-function getEventSlice(limit, offset) {
-  return simulatorState.events.slice(offset, offset + limit);
-}
+function setSelectedBinFromRequest(request, response) {
+  const binId = Number(request.params.binId || request.body?.binId);
+  const bin = setSelectedBin(binId);
 
-function buildStats() {
-  const totalEvents = simulatorState.events.length;
-  const eventCounts = simulatorState.events.reduce((counts, event) => {
-    counts[event.type] = (counts[event.type] || 0) + 1;
-    return counts;
-  }, {});
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return null;
+  }
 
-  const averageLevel = totalEvents
-    ? roundToOneDecimal(simulatorState.events.reduce((sum, event) => sum + event.level, 0) / totalEvents)
-    : roundToOneDecimal(simulatorState.currentLevel);
-
-  return {
-    binId: simulatorState.binId,
-    totalEvents,
-    eventCounts,
-    averageLevel,
-    uptimeSeconds: Math.round(process.uptime())
-  };
+  response.json({ success: true, selectedBinId: bin.id, state: serializeState() });
+  return bin;
 }
 
 app.get('/', (request, response) => {
   response.json({
-    name: 'Waste Level Monitoring Simulator Backend',
+    name: 'Community Waste Bin Registry Backend',
     status: 'running',
     websocket: 'enabled'
   });
@@ -338,17 +641,128 @@ app.get('/api/state', (request, response) => {
   response.json(serializeState());
 });
 
-app.get('/api/events', (request, response) => {
-  const limit = clamp(readNumber(request.query.limit, 100), 1, 1000);
-  const offset = clamp(readNumber(request.query.offset, 0), 0, simulatorState.events.length);
+app.get('/api/app-state', (request, response) => {
+  response.json(serializeState());
+});
+
+app.get('/api/bins', (request, response) => {
   response.json({
-    total: simulatorState.events.length,
-    events: getEventSlice(limit, offset)
+    total: appState.bins.length,
+    bins: buildBinsResponse()
   });
 });
 
+app.post('/api/bins', (request, response) => {
+  const createdBin = createBin(request.body);
+
+  if (!createdBin) {
+    response.status(400).json({ success: false, message: 'Invalid bin payload.' });
+    return;
+  }
+
+  if (createdBin.error) {
+    response.status(400).json({ success: false, message: createdBin.error });
+    return;
+  }
+
+  response.status(201).json({ success: true, bin: createdBin, state: serializeState() });
+});
+
+app.post('/api/seed', (request, response) => {
+  const createdBins = seedExampleBins();
+  response.status(createdBins.length > 0 ? 201 : 200).json({
+    success: true,
+    created: createdBins.length,
+    bins: createdBins,
+    state: serializeState(),
+    message: createdBins.length > 0
+      ? 'Example community bins seeded successfully.'
+      : 'All example community bins are already available.'
+  });
+});
+
+app.get('/api/bins/:binId', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  response.json({ success: true, bin, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/select', (request, response) => {
+  setSelectedBinFromRequest(request, response);
+});
+
+app.get('/api/notifications', (request, response) => {
+  response.json({
+    total: appState.notifications.length,
+    unreadCount: appState.unreadNotificationCount,
+    notifications: appState.notifications
+  });
+});
+
+app.post('/api/notifications/:notificationId/acknowledge', (request, response) => {
+  if (!isAdminRequest(request)) {
+    response.status(403).json({ success: false, message: 'Admin mode is required to acknowledge notifications.' });
+    return;
+  }
+
+  const notification = getNotificationById(request.params.notificationId);
+
+  if (!notification) {
+    response.status(404).json({ success: false, message: 'Notification not found.' });
+    return;
+  }
+
+  acknowledgeNotification(notification, getAdminName(request));
+  response.json({ success: true, notification, state: serializeState() });
+});
+
+app.post('/api/notifications/:notificationId/read', (request, response) => {
+  if (!isAdminRequest(request)) {
+    response.status(403).json({ success: false, message: 'Admin mode is required to acknowledge notifications.' });
+    return;
+  }
+
+  const notification = getNotificationById(request.params.notificationId);
+
+  if (!notification) {
+    response.status(404).json({ success: false, message: 'Notification not found.' });
+    return;
+  }
+
+  acknowledgeNotification(notification, getAdminName(request));
+  response.json({ success: true, notification, state: serializeState() });
+});
+
+app.get('/api/events', (request, response) => {
+  const limit = clamp(readNumber(request.query.limit, 100), 1, MAX_EVENTS);
+  const binId = request.query.binId ? Number(request.query.binId) : null;
+
+  const events = binId
+    ? appState.events.filter((event) => event.binId === binId).slice(0, limit)
+    : appState.events.slice(0, limit);
+
+  response.json({ total: events.length, events });
+});
+
 app.get('/api/stats', (request, response) => {
-  response.json(buildStats());
+  const totalBins = appState.bins.length;
+  const totalCommunities = new Set(appState.bins.map((bin) => bin.communityName)).size;
+
+  response.json({
+    totalBins,
+    totalCommunities,
+    unreadNotifications: appState.unreadNotificationCount,
+    runningBins: appState.bins.filter((bin) => bin.isRunning).length,
+    activeBinId: appState.selectedBinId,
+    eventCount: appState.events.length,
+    notificationCount: appState.notifications.length,
+    uptimeSeconds: Math.round(process.uptime())
+  });
 });
 
 app.get('/api/health', (request, response) => {
@@ -356,51 +770,186 @@ app.get('/api/health', (request, response) => {
     status: 'ok',
     uptimeSeconds: Math.round(process.uptime()),
     websocketClients: webSocketServer.clients.size,
-    isRunning: simulatorState.isRunning
+    totalBins: appState.bins.length,
+    unreadNotifications: appState.unreadNotificationCount,
+    runningBins: appState.bins.filter((bin) => bin.isRunning).length
   });
 });
 
 app.post('/api/control/start', (request, response) => {
-  const started = startSimulation();
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  const started = startSimulation(bin, 'Simulation started from control endpoint.');
   response.json({ success: true, started, state: serializeState() });
 });
 
 app.post('/api/control/stop', (request, response) => {
-  stopSimulation('Stopped from REST control endpoint.');
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  stopSimulation(bin, 'Simulation stopped from control endpoint.');
   response.json({ success: true, state: serializeState() });
 });
 
 app.post('/api/control/reset', (request, response) => {
-  resetSimulator();
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  resetBin(bin, 'Bin emptied and simulation reset.');
   response.json({ success: true, state: serializeState() });
 });
 
 app.post('/api/control/set-level', (request, response) => {
-  const { level } = request.body || {};
-  setManualLevel(level);
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  applyLevelUpdate(bin, request.body?.level, 'MANUAL_SET', 'Level manually set from control endpoint.');
   response.json({ success: true, state: serializeState() });
 });
 
 app.post('/api/control/set-fill-rate', (request, response) => {
-  const { rate } = request.body || {};
-  setFillRate(rate);
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  applySettingsUpdate(bin, { fillRate: request.body?.rate }, 'SETTINGS_CHANGED', 'Fill rate updated from control endpoint.');
   response.json({ success: true, state: serializeState() });
 });
 
 app.post('/api/control/set-alert-threshold', (request, response) => {
-  const { threshold } = request.body || {};
-  setAlertThreshold(threshold);
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  applySettingsUpdate(bin, { alertThreshold: request.body?.threshold }, 'SETTINGS_CHANGED', 'Alert threshold updated from control endpoint.');
   response.json({ success: true, state: serializeState() });
 });
 
-app.post('/api/control/ingest', (request, response) => {
-  const accepted = ingestRealtimeData(request.body, 'REST');
+app.post('/api/bins/:binId/control/start', (request, response) => {
+  const bin = getBinById(request.params.binId);
 
-  if (!accepted) {
-    response.status(400).json({
-      success: false,
-      message: 'Request body must be a JSON object containing realtime data.'
-    });
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  const started = startSimulation(bin, 'Simulation started from bin control endpoint.');
+  response.json({ success: true, started, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/control/stop', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  stopSimulation(bin, 'Simulation stopped from bin control endpoint.');
+  response.json({ success: true, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/control/reset', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  resetBin(bin, 'Bin emptied and reset from bin control endpoint.');
+  response.json({ success: true, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/control/set-level', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  applyLevelUpdate(bin, request.body?.level, 'MANUAL_SET', 'Level manually set from bin control endpoint.');
+  response.json({ success: true, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/control/set-fill-rate', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  applySettingsUpdate(bin, { fillRate: request.body?.rate }, 'SETTINGS_CHANGED', 'Fill rate updated from bin control endpoint.');
+  response.json({ success: true, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/control/set-alert-threshold', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  applySettingsUpdate(bin, { alertThreshold: request.body?.threshold }, 'SETTINGS_CHANGED', 'Alert threshold updated from bin control endpoint.');
+  response.json({ success: true, state: serializeState() });
+});
+
+app.post('/api/bins/:binId/ingest', (request, response) => {
+  const bin = getBinById(request.params.binId);
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'Bin not found.' });
+    return;
+  }
+
+  const nextBin = ingestRealtimeData(bin, request.body, 'REST');
+
+  if (nextBin?.error) {
+    response.status(400).json({ success: false, message: nextBin.error });
+    return;
+  }
+
+  response.json({ success: true, bin, state: serializeState() });
+});
+
+app.post('/api/control/ingest', (request, response) => {
+  const bin = getSelectedBin();
+
+  if (!bin) {
+    response.status(404).json({ success: false, message: 'No bin is selected.' });
+    return;
+  }
+
+  const nextBin = ingestRealtimeData(bin, request.body, 'REST');
+
+  if (nextBin?.error) {
+    response.status(400).json({ success: false, message: nextBin.error });
     return;
   }
 
@@ -409,7 +958,7 @@ app.post('/api/control/ingest', (request, response) => {
 
 webSocketServer.on('connection', (socket) => {
   socket.send(JSON.stringify({
-    type: 'STATE_UPDATE',
+    type: 'APP_STATE_UPDATE',
     data: serializeState()
   }));
 
@@ -418,34 +967,105 @@ webSocketServer.on('connection', (socket) => {
       const message = JSON.parse(rawMessage.toString());
 
       switch (message.type) {
-        case 'START':
-          startSimulation();
-          break;
-        case 'STOP':
-          stopSimulation('Stopped from WebSocket control.');
-          break;
-        case 'RESET':
-          resetSimulator();
-          break;
-        case 'SET_LEVEL':
-          setManualLevel(message.level);
-          break;
-        case 'SET_FILL_RATE':
-          setFillRate(message.rate);
-          break;
-        case 'SET_ALERT_THRESHOLD':
-          setAlertThreshold(message.threshold);
-          break;
-        case 'DATA_UPDATE':
-        case 'INGEST':
-        case 'REALTIME_DATA':
-          if (!ingestRealtimeData(message.data ?? message.payload ?? message, 'WebSocket')) {
-            socket.send(JSON.stringify({
-              type: 'ERROR',
-              message: 'Realtime data payload must be a JSON object.'
-            }));
+        case 'CREATE_BIN': {
+          const createdBin = createBin(message.data ?? message.payload ?? message);
+          if (createdBin?.error) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: createdBin.error }));
           }
           break;
+        }
+        case 'SELECT_BIN': {
+          const selectedBinId = Number(message.binId ?? message.id);
+          if (!setSelectedBin(selectedBinId)) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'Bin not found.' }));
+          }
+          break;
+        }
+        case 'START': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          startSimulation(bin, 'Simulation started from WebSocket control.');
+          break;
+        }
+        case 'STOP': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          stopSimulation(bin, 'Simulation stopped from WebSocket control.');
+          break;
+        }
+        case 'RESET': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          resetBin(bin, 'Bin emptied from WebSocket control.');
+          break;
+        }
+        case 'SET_LEVEL': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          applyLevelUpdate(bin, message.level, 'MANUAL_SET', 'Level manually set from WebSocket control.');
+          break;
+        }
+        case 'SET_FILL_RATE': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          applySettingsUpdate(bin, { fillRate: message.rate }, 'SETTINGS_CHANGED', 'Fill rate updated from WebSocket control.');
+          break;
+        }
+        case 'SET_ALERT_THRESHOLD': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          applySettingsUpdate(bin, { alertThreshold: message.threshold }, 'SETTINGS_CHANGED', 'Alert threshold updated from WebSocket control.');
+          break;
+        }
+        case 'DATA_UPDATE':
+        case 'INGEST':
+        case 'REALTIME_DATA': {
+          const bin = getSelectedBin();
+          if (!bin) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'No bin is selected.' }));
+            break;
+          }
+          const nextBin = ingestRealtimeData(bin, message.data ?? message.payload ?? message, 'WebSocket');
+          if (nextBin?.error) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: nextBin.error }));
+          }
+          break;
+        }
+        case 'MARK_NOTIFICATION_READ':
+        case 'ACKNOWLEDGE_NOTIFICATION': {
+          if (!['1', 'true', 'yes', 'admin'].includes(String(message.isAdmin || '').trim().toLowerCase())) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'Admin mode is required to acknowledge notifications.' }));
+            break;
+          }
+
+          const notificationId = Number(message.notificationId ?? message.id);
+          const notification = appState.notifications.find((item) => item.id === notificationId);
+          if (!notification) {
+            socket.send(JSON.stringify({ type: 'ERROR', message: 'Notification not found.' }));
+            break;
+          }
+
+          acknowledgeNotification(notification, String(message.adminName || 'Local Admin'));
+          break;
+        }
         default:
           socket.send(JSON.stringify({
             type: 'ERROR',
@@ -462,7 +1082,11 @@ webSocketServer.on('connection', (socket) => {
 });
 
 function shutdown() {
-  stopSimulation('Shutting down server.');
+  for (const interval of simulationIntervals.values()) {
+    clearInterval(interval);
+  }
+
+  simulationIntervals.clear();
   server.close(() => {
     process.exit(0);
   });
@@ -472,18 +1096,8 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 server.listen(PORT, () => {
-  console.log('Waste Monitoring Simulator Backend');
+  console.log('Community Waste Bin Registry Backend');
   console.log(`Server running on port ${PORT}`);
   console.log(`WebSocket: ws://localhost:${PORT}`);
   console.log(`HTTP API: http://localhost:${PORT}/api`);
 });
-
-module.exports = {
-  app,
-  server,
-  simulatorState,
-  startSimulation,
-  stopSimulation,
-  resetSimulator,
-  ingestRealtimeData
-};

@@ -4,7 +4,7 @@ const filterOptions = [
   { value: 'CONTROL', label: 'Control' },
   { value: 'SETTINGS', label: 'Settings' },
   { value: 'ALERTS', label: 'Alerts' }
-]
+];
 
 export default function HistoryPanel({
   events,
@@ -12,7 +12,8 @@ export default function HistoryPanel({
   sortOrder,
   onFilterChange,
   onSortChange,
-  formatTimestamp
+  formatTimestamp,
+  selectedBin
 }) {
   return (
     <div className="history-panel">
@@ -20,6 +21,9 @@ export default function HistoryPanel({
         <div>
           <p className="section-kicker">History</p>
           <h2>Event log</h2>
+          <p className="visualizer-subtitle">
+            {selectedBin ? `${selectedBin.communityName} · ${selectedBin.binName}` : 'All bins'}
+          </p>
         </div>
 
         <div className="history-toolbar">
@@ -41,7 +45,7 @@ export default function HistoryPanel({
       <div className="history-list">
         {events.length === 0 ? (
           <div className="empty-state">
-            No events yet. Start the simulation to begin logging activity.
+            No events yet for this bin.
           </div>
         ) : (
           events.map((event) => (
@@ -52,6 +56,7 @@ export default function HistoryPanel({
               </div>
               <p>{event.message}</p>
               <div className="history-meta">
+                <span>{event.binName}</span>
                 <span>{event.level.toFixed(1)}%</span>
                 <span>{event.type}</span>
               </div>
