@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const WebSocket = require('ws');
+const { hydrateStateFromDatabase, persistEvent, persistStateSnapshot } = require('./db');
 
 const PORT = Number(process.env.PORT || 5000);
 const CHECK_INTERVAL_MS = Number(process.env.CHECK_INTERVAL_MS || 5000);
@@ -50,15 +51,19 @@ function createInitialState() {
 }
 
 const simulatorState = createInitialState();
-let nextEventId = 1;
+const hydratedState = hydrateStateFromDatabase(simulatorState);
+Object.assign(simulatorState, hydratedState.state);
+
+let nextEventId = hydratedState.nextEventId;
 let simulationInterval = null;
+let webSocketServer = null;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
-const webSocketServer = new WebSocket.Server({ server });
+webSocketServer = new WebSocket.Server({ server });
 
 function getStatusForLevel(level, alertThreshold) {
   if (level >= alertThreshold) {
@@ -77,7 +82,7 @@ function serializeState() {
     ...simulatorState,
     currentLevel: roundToOneDecimal(simulatorState.currentLevel),
     lastUpdate: simulatorState.lastUpdate,
-    clientCount: webSocketServer.clients.size
+    clientCount: webSocketServer ? webSocketServer.clients.size : 0
   };
 }
 
@@ -92,6 +97,7 @@ function broadcastMessage(message) {
 }
 
 function broadcastState(reason) {
+  persistStateSnapshot(simulatorState);
   broadcastMessage({
     type: 'STATE_UPDATE',
     reason,
@@ -113,6 +119,8 @@ function addEvent(type, level, message, extra = {}) {
   if (simulatorState.events.length > 1000) {
     simulatorState.events.length = 1000;
   }
+
+  persistEvent(event);
 
   broadcastMessage({
     type: 'EVENT_ADDED',
