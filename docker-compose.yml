@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      DEVICE_ID: BIN-001
+      DEVICE_LOCATION: Zone 1
+      DEFAULT_ALERT_THRESHOLD: 80
+      DEFAULT_FILL_RATE: 5
+      CHECK_INTERVAL_MS: 5000
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
