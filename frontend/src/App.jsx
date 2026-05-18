@@ -204,14 +204,40 @@ export default function App() {
     return eventSortOrder === 'ASC' ? visibleEvents.reverse() : visibleEvents;
   }, [activeEventFilter, eventGroups, eventSortOrder, simulatorState.events]);
 
+  const overviewCards = useMemo(() => ([
+    {
+      label: 'Current level',
+      value: `${simulatorState.currentLevel.toFixed(1)}%`,
+      note: simulatorState.status === 'ALERT' ? 'At or above threshold' : 'Live from the backend'
+    },
+    {
+      label: 'Operating mode',
+      value: simulatorState.isRunning ? 'Auto' : 'Paused',
+      note: connectionStatus === 'CONNECTED' ? 'Realtime stream active' : 'Polling fallback active'
+    },
+    {
+      label: 'Alerts',
+      value: simulatorState.alertCount.toString(),
+      note: simulatorState.status === 'ALERT' ? 'Action required' : 'Nominal'
+    },
+    {
+      label: 'Event log',
+      value: simulatorState.events.length.toString(),
+      note: 'Persisted to SQLite'
+    }
+  ]), [connectionStatus, simulatorState.alertCount, simulatorState.currentLevel, simulatorState.events.length, simulatorState.isRunning, simulatorState.status]);
+
   return (
     <div className="app-shell">
       <div className="ambient-frame" aria-hidden="true" />
 
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Waste Level Monitoring Simulator</p>
-          <h1>Watch one bin behave like a live system.</h1>
+      <header className="dashboard-header">
+        <div className="hero-copy-block">
+          <p className="eyebrow">Waste level monitoring</p>
+          <h1>Realtime bin operations in one glance.</h1>
+          <p className="hero-description">
+            Monitor live state, accept external updates, and keep the system history readable.
+          </p>
         </div>
 
         <div className="status-cluster">
@@ -224,18 +250,30 @@ export default function App() {
         </div>
       </header>
 
-      <main className="layout-grid">
+      <section className="overview-strip" aria-label="Dashboard overview">
+        {overviewCards.map((card) => (
+          <article className="overview-card" key={card.label}>
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+            <p>{card.note}</p>
+          </article>
+        ))}
+      </section>
+
+      <main className="dashboard-grid">
         <section className="panel hero-panel">
           <BinVisualizer state={simulatorState} />
         </section>
 
-        <section className="panel controls-panel">
-          <ControlPanel state={simulatorState} onSendCommand={sendCommand} />
-        </section>
+        <div className="sidebar-stack">
+          <section className="panel controls-panel">
+            <ControlPanel state={simulatorState} onSendCommand={sendCommand} />
+          </section>
 
-        <section className="panel status-panel-wrap">
-          <StatusPanel state={simulatorState} connectionStatus={connectionStatus} />
-        </section>
+          <section className="panel status-panel-wrap">
+            <StatusPanel state={simulatorState} connectionStatus={connectionStatus} />
+          </section>
+        </div>
 
         <section className="panel history-panel-wrap">
           <HistoryPanel

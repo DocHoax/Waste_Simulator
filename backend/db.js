@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 
 const MAX_EVENTS = 1000;
 const dataDirectory = path.join(__dirname, 'data');
@@ -8,9 +8,9 @@ const databasePath = path.join(dataDirectory, 'waste-simulator.db');
 
 fs.mkdirSync(dataDirectory, { recursive: true });
 
-const db = new Database(databasePath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = new DatabaseSync(databasePath);
+db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA foreign_keys = ON;');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS state_snapshot (
