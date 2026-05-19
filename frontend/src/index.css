@@ -201,6 +201,121 @@ input[type='range']::-webkit-slider-thumb {
 .level-ring { position: absolute; right: 10px; bottom: 10px; width: 78px; height: 78px; display: grid; place-items: center; border: 8px solid var(--level-color); border-radius: 50%; background: #fff; box-shadow: 0 14px 28px rgba(15,23,42,0.18); }
 .level-ring span { color: var(--text); font-weight: 700; font-size: 1.05rem; }
 .bin-summary { display: grid; gap: 12px; align-content: center; }
+.bin-grid-view { align-content: start; }
+.bin-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.bin-gallery-card {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--soft-shadow);
+  color: var(--text);
+  text-align: left;
+}
+.bin-gallery-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56,189,248,0.45);
+}
+.bin-gallery-card.is-selected {
+  border-color: rgba(56,189,248,0.7);
+  box-shadow: 0 14px 30px rgba(56,189,248,0.12);
+}
+.bin-gallery-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bin-gallery-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.bin-gallery-head strong {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+.bin-gallery-head > div > span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.bin-gallery-showcase {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 12px 10px;
+  border-radius: 10px;
+  background: #eef3f8;
+}
+.bin-gallery-lid {
+  width: 82px;
+  height: 10px;
+  border-radius: 6px 6px 3px 3px;
+  background: #1e293b;
+}
+.bin-gallery-shell {
+  position: relative;
+  width: 78px;
+  height: 128px;
+  overflow: hidden;
+  border: 6px solid #1e293b;
+  border-top-width: 10px;
+  border-radius: 10px 10px 14px 14px;
+  background: #dbe4ef;
+}
+.bin-gallery-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 6px 6px 8px 8px;
+  transition: height 0.3s ease, background-color 0.3s ease;
+}
+.bin-gallery-level {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.bin-gallery-meta {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+.bin-gallery-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.bin-gallery-stats > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.bin-gallery-stats span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bin-gallery-stats strong {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
 
 .metric-card, .stat-block, .history-item, .control-field, .notification-card, .directory-card, .registry-form, .switch-row { border: 1px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: var(--soft-shadow); }
 .metric-card, .stat-block, .notification-card, .directory-card { padding: 14px 15px; }
@@ -294,6 +409,7 @@ input[type='range']::-webkit-slider-thumb {
   .dashboard-header, .overview-strip, .dashboard-grid, .right-column, .bin-stage, .form-grid, .stat-grid, .status-footnote { grid-template-columns: 1fr; }
   .status-cluster { justify-items: stretch; width: 100%; max-width: none; }
   .status-pills { justify-content: flex-start; }
+  .bin-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .left-column, .right-column, .hero-panel { grid-column: 1 / -1; }
   .app-shell { padding: 14px; }
   .alerts-stack { right: 14px; left: 14px; width: auto; }
@@ -303,6 +419,7 @@ input[type='range']::-webkit-slider-thumb {
   .section-heading, .directory-select, .notification-head, .history-item-head, .alert-notification { grid-template-columns: 1fr; display: grid; }
   .button-row, .switch-row, .history-toolbar, .status-cluster { flex-direction: column; align-items: stretch; }
   .directory-list { grid-template-columns: 1fr; }
+  .bin-gallery { grid-template-columns: 1fr; gap: 14px; }
   .account-cluster { align-items: flex-start; flex-direction: column; }
   .signout-button { width: 100%; }
   .hero-copy-block h1 { font-size: clamp(1.9rem, 11vw, 2.8rem); }

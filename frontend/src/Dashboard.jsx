@@ -327,6 +327,25 @@ export default function Dashboard() {
       body: JSON.stringify(binPayload)
     });
 
+    if (payload?.bin) {
+      setSimulatorState((currentState) => {
+        const existingBins = Array.isArray(currentState.bins) ? currentState.bins : [];
+        const nextBins = [payload.bin, ...existingBins.filter((bin) => bin.id !== payload.bin.id)];
+        const nextState = normalizeState({
+          ...currentState,
+          bins: nextBins,
+          selectedBinId: currentState.selectedBinId ?? payload.bin.id,
+          selectedBin: currentState.selectedBin ?? payload.bin,
+          totalBins: nextBins.length,
+          activeCommunities: new Set(nextBins.map((bin) => bin.communityName)).size,
+          runningBinsCount: nextBins.filter((bin) => bin.isRunning).length
+        });
+
+        lastSnapshotRef.current = getStateSignature(nextState);
+        return nextState;
+      });
+    }
+
     return payload?.bin || null;
   };
 
@@ -476,7 +495,11 @@ export default function Dashboard() {
         </aside>
 
         <section className="panel hero-panel">
-          <BinVisualizer bin={selectedBin} />
+          <BinVisualizer
+            bins={simulatorState.bins}
+            selectedBinId={simulatorState.selectedBinId}
+            onSelectBin={handleSelectBin}
+          />
         </section>
 
         <aside className="right-column">
