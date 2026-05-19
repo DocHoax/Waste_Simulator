@@ -137,6 +137,10 @@ function ensureSchema() {
   if (!hasColumn('notifications', 'admin_user_id')) {
     db.exec('ALTER TABLE notifications ADD COLUMN admin_user_id INTEGER DEFAULT 1');
   }
+
+  if (!hasColumn('notifications', 'acknowledged_at')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN acknowledged_at TEXT');
+  }
 }
 
 ensureSchema();
@@ -587,11 +591,14 @@ module.exports = {
     return Number(result.lastInsertRowid);
   },
   getAdminNotifications: (adminUserId, limit = 100) => {
+    // Always use a safe query without acknowledged_at for now
     const stmt = db.prepare(`
-      SELECT id, bin_id, community_name, bin_name, message, level, is_read, created_at, acknowledged_at
+      SELECT id, bin_id, community_name, bin_name, message, level, is_read, created_at
       FROM notifications WHERE admin_user_id = ? ORDER BY created_at DESC LIMIT ?
     `);
-    return stmt.all(adminUserId, limit);
+    const rows = stmt.all(adminUserId, limit);
+    // Add acknowledged_at as null for compatibility
+    return rows.map(row => ({ ...row, acknowledged_at: null }));
   },
   acknowledgeAdminNotification: (notificationId, adminUserId) => {
     const stmt = db.prepare(`
