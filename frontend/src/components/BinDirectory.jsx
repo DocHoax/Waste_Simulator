@@ -15,15 +15,23 @@ export default function BinDirectory({ bins, selectedBinId, onSelectBin }) {
             No bins yet. Create the first community bin to populate the registry.
           </div>
         ) : (
-          bins.map((bin) => (
-            <article key={bin.id} className={`directory-card ${selectedBinId === bin.id ? 'is-selected' : ''}`}>
+          bins.map((bin) => {
+            const fillPercent = Math.min(100, Math.max(0, (bin.currentLevel / bin.maxCapacity) * 100));
+            const statusClass = `status-${bin.status.toLowerCase()}`;
+
+            return (
+            <article key={bin.id} className={`directory-card ${statusClass} ${selectedBinId === bin.id ? 'is-selected' : ''}`}>
               <button type="button" className="directory-select" onClick={() => onSelectBin(bin.id)}>
                 <div>
                   <strong>{bin.binName}</strong>
                   <span>{bin.communityName}</span>
                 </div>
-                <span className="directory-status">{bin.status}</span>
+                <span className={`directory-status ${statusClass}`}>{bin.status}</span>
               </button>
+
+              <div className="directory-progress" aria-hidden="true">
+                <span style={{ width: `${fillPercent}%` }} />
+              </div>
 
               <div className="directory-meta">
                 <span>{bin.location}</span>
@@ -31,7 +39,8 @@ export default function BinDirectory({ bins, selectedBinId, onSelectBin }) {
                 <span>{bin.isRunning ? 'Running' : 'Paused'}</span>
               </div>
             </article>
-          ))
+            );
+          })
         )}
       </div>
     </div>

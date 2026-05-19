@@ -40,6 +40,18 @@ function safeParseJson(text, fallback) {
 
 function ensureSchema() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'community_manager',
+      community_name TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS state_snapshot (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       snapshot TEXT NOT NULL,
@@ -54,6 +66,7 @@ function ensureSchema() {
 
     CREATE TABLE IF NOT EXISTS bins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
       community_name TEXT NOT NULL,
       bin_name TEXT NOT NULL,
       location TEXT NOT NULL,
@@ -66,37 +79,51 @@ function ensureSchema() {
       empty_count INTEGER NOT NULL,
       alert_count INTEGER NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       bin_id INTEGER NOT NULL,
+      admin_user_id INTEGER NOT NULL,
       community_name TEXT NOT NULL,
       bin_name TEXT NOT NULL,
       message TEXT NOT NULL,
       level REAL NOT NULL,
       is_read INTEGER NOT NULL DEFAULT 0,
-      acknowledged_by TEXT,
       created_at TEXT NOT NULL,
-      read_at TEXT
+      acknowledged_at TEXT,
+      FOREIGN KEY (bin_id) REFERENCES bins(id) ON DELETE CASCADE,
+      FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY,
       bin_id INTEGER,
+      user_id INTEGER,
       community_name TEXT,
       bin_name TEXT,
       type TEXT NOT NULL,
       level REAL NOT NULL,
       message TEXT NOT NULL,
       timestamp TEXT NOT NULL,
-      extra_json TEXT
+      extra_json TEXT,
+      FOREIGN KEY (bin_id) REFERENCES bins(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     );
   `);
 
+  if (!hasColumn('bins', 'user_id')) {
+    db.exec('ALTER TABLE bins ADD COLUMN user_id INTEGER DEFAULT 1');
+  }
+
   if (!hasColumn('events', 'bin_id')) {
     db.exec('ALTER TABLE events ADD COLUMN bin_id INTEGER');
+  }
+
+  if (!hasColumn('events', 'user_id')) {
+    db.exec('ALTER TABLE events ADD COLUMN user_id INTEGER');
   }
 
   if (!hasColumn('events', 'community_name')) {
@@ -107,8 +134,8 @@ function ensureSchema() {
     db.exec('ALTER TABLE events ADD COLUMN bin_name TEXT');
   }
 
-  if (!hasColumn('notifications', 'acknowledged_by')) {
-    db.exec('ALTER TABLE notifications ADD COLUMN acknowledged_by TEXT');
+  if (!hasColumn('notifications', 'admin_user_id')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN admin_user_id INTEGER DEFAULT 1');
   }
 }
 
@@ -513,6 +540,7 @@ function hydrateStateFromDatabase(defaultBinState) {
 
 module.exports = {
   databasePath,
+  db,
   hydrateStateFromDatabase,
   markNotificationAcknowledged,
   markNotificationRead,
@@ -522,5 +550,87 @@ module.exports = {
   persistSelectedBinId,
   persistBin,
   roundToOneDecimal,
-  MAX_EVENTS
+  MAX_EVENTS,
+  // User functions
+  createUser: (username, email, passwordHash, communityName, role = 'community_manager') => {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO users (username, email, password_hash, community_name, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(username, email, passwordHash, communityName, role, now, now);
+    return Number(result.lastInsertRowid);
+  },
+  getUserByEmail: (email) => {
+    const stmt = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1');
+    return stmt.get(email);
+  },
+  getUserById: (id) => {
+    const stmt = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
+    return stmt.get(id);
+  },
+  getUserBins: (userId) => {
+    const stmt = db.prepare('SELECT * FROM bins WHERE user_id = ? ORDER BY created_at DESC');
+    return stmt.all(userId).map(serializeBin);
+  },
+  getAllBins: () => {
+    const stmt = db.prepare('SELECT * FROM bins ORDER BY created_at DESC');
+    return stmt.all().map(serializeBin);
+  },
+  createAdminNotification: (adminUserId, binId, communityName, binName, message, level) => {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO notifications (admin_user_id, bin_id, community_name, bin_name, message, level, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+    `);
+    const result = stmt.run(adminUserId, binId, communityName, binName, message, level, now);
+    return Number(result.lastInsertRowid);
+  },
+  getAdminNotifications: (adminUserId, limit = 100) => {
+    const stmt = db.prepare(`
+      SELECT id, bin_id, community_name, bin_name, message, level, is_read, created_at, acknowledged_at
+      FROM notifications WHERE admin_user_id = ? ORDER BY created_at DESC LIMIT ?
+    `);
+    return stmt.all(adminUserId, limit);
+  },
+  acknowledgeAdminNotification: (notificationId, adminUserId) => {
+    const stmt = db.prepare(`
+      UPDATE notifications SET is_read = 1, acknowledged_at = ? WHERE id = ? AND admin_user_id = ?
+    `);
+    stmt.run(new Date().toISOString(), notificationId, adminUserId);
+  },
+  getSuperAdmin: () => {
+    const stmt = db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1 LIMIT 1');
+    return stmt.get('super_admin');
+  },
+  getUnreadNotificationCount: (adminUserId) => {
+    const stmt = db.prepare('SELECT COUNT(*) as count FROM notifications WHERE admin_user_id = ? AND is_read = 0');
+    return stmt.get(adminUserId).count;
+  },
+  persistNewBinWithUser: (bin, userId) => {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO bins (
+        user_id, community_name, bin_name, location, current_level, max_capacity,
+        alert_threshold, fill_rate, is_running, status, empty_count, alert_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      userId,
+      bin.communityName,
+      bin.binName,
+      bin.location,
+      roundToOneDecimal(bin.currentLevel),
+      roundToOneDecimal(bin.maxCapacity),
+      roundToOneDecimal(bin.alertThreshold),
+      roundToOneDecimal(bin.fillRate),
+      bin.isRunning ? 1 : 0,
+      bin.status,
+      bin.emptyCount,
+      bin.alertCount,
+      now,
+      now
+    );
+    return Number(result.lastInsertRowid);
+  }
 };
