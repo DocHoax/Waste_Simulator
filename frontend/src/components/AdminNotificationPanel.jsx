@@ -2,7 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 function getApiUrl() {
-  return import.meta.env.VITE_API_URL || 'http://localhost:5050';
+  const port = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${port}`;
+  return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
+}
+
+function getWebSocketUrl() {
+  const port = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${port}`;
+  return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
 }
 
 export default function AdminNotificationPanel() {
@@ -21,8 +31,7 @@ export default function AdminNotificationPanel() {
 
   // WebSocket for real-time updates
   useEffect(() => {
-    const wsUrl = `ws://localhost:5050/`;
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(getWebSocketUrl());
 
     ws.onmessage = (event) => {
       try {
@@ -116,6 +125,7 @@ export default function AdminNotificationPanel() {
                   <p>{notif.message}</p>
                   {!notif.is_read && (
                     <button
+                        type="button"
                       className="primary-button"
                       onClick={() => handleAcknowledge(notif.id)}
                       style={{ width: '100%' }}
@@ -125,7 +135,7 @@ export default function AdminNotificationPanel() {
                   )}
                   {notif.is_read && (
                     <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                      ✓ Acknowledged at {new Date(notif.acknowledged_at).toLocaleString()}
+                        ✓ Acknowledged{notif.acknowledged_at ? ` at ${new Date(notif.acknowledged_at).toLocaleString()}` : ''}
                     </p>
                   )}
                 </div>

@@ -122,7 +122,6 @@ export default function Dashboard() {
   const [activeEventFilter, setActiveEventFilter] = useState('ALL');
   const [eventSortOrder, setEventSortOrder] = useState('DESC');
   const [hasInitialSync, setHasInitialSync] = useState(false);
-  const [isSeedingExamples, setIsSeedingExamples] = useState(false);
   const [adminMode, setAdminMode] = useState(() => window.localStorage.getItem('waste-admin-mode') === 'true');
   const [adminName, setAdminName] = useState(() => window.localStorage.getItem('waste-admin-name') || user?.username || 'Local Admin');
   const socketRef = useRef(null);
@@ -130,7 +129,6 @@ export default function Dashboard() {
   const syncTimerRef = useRef(null);
   const lastSnapshotRef = useRef('');
   const alertCounterRef = useRef(1);
-  const seedAttemptedRef = useRef(false);
   const apiBaseUrl = getApiBaseUrl();
 
   const applyServerState = (nextState) => {
@@ -209,7 +207,7 @@ export default function Dashboard() {
             applyServerState(message.data);
           }
 
-          if (message.type === 'NOTIFICATION_ADDED') {
+          if (message.type === 'NOTIFICATION_ADDED' || message.type === 'ADMIN_NOTIFICATION') {
             const notification = message.data;
             const alertId = alertCounterRef.current++;
             setAlerts((currentAlerts) => [
@@ -338,22 +336,6 @@ export default function Dashboard() {
     });
   };
 
-  const handleSeedExampleBins = async () => {
-    if (isSeedingExamples) {
-      return null;
-    }
-
-    setIsSeedingExamples(true);
-
-    try {
-      return await mutateState(`${apiBaseUrl}/api/seed`, {
-        method: 'POST'
-      });
-    } finally {
-      setIsSeedingExamples(false);
-    }
-  };
-
   const handleAcknowledgeNotification = async (notificationId) => {
     if (!adminMode) {
       throw new Error('Switch on admin mode to acknowledge alerts.');
@@ -371,17 +353,6 @@ export default function Dashboard() {
   const removeAlert = (alertId) => {
     setAlerts((currentAlerts) => currentAlerts.filter((alert) => alert.id !== alertId));
   };
-
-  useEffect(() => {
-    if (!hasInitialSync || simulatorState.bins.length > 0 || seedAttemptedRef.current) {
-      return;
-    }
-
-    seedAttemptedRef.current = true;
-    handleSeedExampleBins().catch((error) => {
-      console.error('Failed to seed example bins', error);
-    });
-  }, [hasInitialSync, simulatorState.bins.length]);
 
   const filteredEvents = useMemo(() => {
     const visibleEvents = simulatorState.events.filter((event) => {
@@ -429,43 +400,35 @@ export default function Dashboard() {
       <header className="dashboard-header">
         <div className="hero-copy-block">
           <p className="eyebrow">Community waste registry</p>
-          <h1>Every community gets a bin, and admins get the alert.</h1>
+          <h1>Public Waste Monitoring System</h1>
           <p className="hero-description">
-            Create bins for neighborhoods, monitor their fill level in real time, and surface a clear notification the moment one reaches capacity.
+            Oversee bin activity, maintain service coverage, and receive capacity alerts promptly.
           </p>
         </div>
 
         <div className="status-cluster">
-          <span className={`connection-pill ${connectionStatus.toLowerCase()}`}>
-            {connectionStatus}
-          </span>
-          <span className={`status-pill status-${(selectedBin?.status || 'idle').toLowerCase()}`}>
-            {selectedBin ? selectedBin.status : 'NO BIN'}
-          </span>
-          
-          {/* User info and role badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '14px', fontWeight: '500' }}>{user?.username}</div>
-              <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{user?.community_name || 'System'}</div>
-              <div style={{
-                fontSize: '11px',
-                fontWeight: '600',
-                color: user?.role === 'super_admin' ? 'var(--alert)' : 'var(--success)',
-                textTransform: 'uppercase'
-              }}>
-                {user?.role === 'super_admin' ? '👑 Super Admin' : '👤 Community Manager'}
+          <div className="status-pills">
+            <span className={`connection-pill ${connectionStatus.toLowerCase()}`}>
+              {connectionStatus}
+            </span>
+            <span className={`status-pill status-${(selectedBin?.status || 'idle').toLowerCase()}`}>
+              {selectedBin ? selectedBin.status : 'NO BIN'}
+            </span>
+          </div>
+
+          <div className="account-cluster">
+            <div className="account-summary">
+              <div className="account-name">{user?.username}</div>
+              <div className="account-community">{user?.community_name || 'System'}</div>
+              <div className={`role-badge ${user?.role === 'super_admin' ? 'role-super-admin' : 'role-community-manager'}`}>
+                {user?.role === 'super_admin' ? 'Super Admin' : 'Community Manager'}
               </div>
             </div>
-            <button
-              onClick={logout}
-              className="secondary-button"
-              style={{ padding: '8px 12px', fontSize: '13px' }}
-            >
+            <button onClick={logout} className="secondary-button signout-button">
               Sign out
             </button>
           </div>
-          
+
           <div className="admin-tools">
             <label className="admin-toggle">
               <input
@@ -500,11 +463,7 @@ export default function Dashboard() {
       <main className="dashboard-grid">
         <aside className="left-column">
           <section className="panel form-panel">
-            <CommunityBinForm
-              onCreateBin={handleCreateBin}
-              onSeedExampleBins={handleSeedExampleBins}
-              isSeedingExamples={isSeedingExamples}
-            />
+            <CommunityBinForm onCreateBin={handleCreateBin} />
           </section>
 
           <section className="panel directory-panel">

@@ -24,7 +24,7 @@ const {
   MAX_EVENTS
 } = require('./db');
 
-const PORT = Number(process.env.PORT || 5050);
+const PORT = Number(process.env.PORT || 5051);
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const CHECK_INTERVAL_MS = Number(process.env.CHECK_INTERVAL_MS || 5000);
 

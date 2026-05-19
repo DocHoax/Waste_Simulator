@@ -11,7 +11,7 @@ const initialFormState = {
   isRunning: false
 };
 
-export default function CommunityBinForm({ onCreateBin, onSeedExampleBins, isSeedingExamples }) {
+export default function CommunityBinForm({ onCreateBin }) {
   const [formState, setFormState] = useState(initialFormState);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,22 +172,9 @@ export default function CommunityBinForm({ onCreateBin, onSeedExampleBins, isSee
 
       {error ? <div className="form-error">{error}</div> : null}
 
-      <p className="helper-copy">
-        Need a quick starting point? Load a few example community bins for local testing.
-      </p>
-
       <div className="registry-actions">
         <button className="primary-button registry-submit" type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Creating...' : 'Create bin'}
-        </button>
-
-        <button
-          className="secondary-button"
-          type="button"
-          onClick={onSeedExampleBins}
-          disabled={isSeedingExamples || isSubmitting}
-        >
-          {isSeedingExamples ? 'Loading examples...' : 'Load example bins'}
         </button>
       </div>
     </form>
