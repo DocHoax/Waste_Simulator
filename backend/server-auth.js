@@ -15,6 +15,7 @@ const {
   getUserById,
   getUserBins,
   getAllBins,
+  deleteBinById,
   createAdminNotification,
   getAdminNotifications,
   acknowledgeAdminNotification,
@@ -189,6 +190,31 @@ app.get('/api/bins/:binId', verifyToken, (req, res) => {
     return res.status(404).json({ success: false, message: 'Bin not found' });
   }
   res.json({ success: true, bin });
+});
+
+app.delete('/api/bins/:binId', verifyToken, requireRole('super_admin'), (req, res) => {
+  const binId = Number(req.params.binId);
+  const bin = appState.bins.find((entry) => entry.id === binId);
+
+  if (!bin) {
+    return res.status(404).json({ success: false, message: 'Bin not found' });
+  }
+
+  const interval = simulationIntervals.get(bin.id);
+  if (interval) {
+    clearInterval(interval);
+    simulationIntervals.delete(bin.id);
+  }
+
+  const deletedCount = deleteBinById(binId);
+  if (!deletedCount) {
+    return res.status(404).json({ success: false, message: 'Bin not found' });
+  }
+
+  appState.bins = appState.bins.filter((entry) => entry.id !== binId);
+  broadcastState('BIN_DELETED');
+
+  return res.json({ success: true, deletedBinId: binId });
 });
 
 // ============ SEED ENDPOINT ============
@@ -433,6 +459,7 @@ app.get('/api/health', (req, res) => {
 // ============ START SERVER ============
 
 initializeSuperAdmin();
+appState.bins = getAllBins();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Multi-Tenant Waste Simulator API running on http://localhost:${PORT}`);

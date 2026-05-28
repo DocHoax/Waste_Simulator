@@ -581,6 +581,13 @@ module.exports = {
     const stmt = db.prepare('SELECT * FROM bins ORDER BY created_at DESC');
     return stmt.all().map(serializeBin);
   },
+  deleteBinById: (binId, userId = null) => {
+    const stmt = userId == null
+      ? db.prepare('DELETE FROM bins WHERE id = ?')
+      : db.prepare('DELETE FROM bins WHERE id = ? AND user_id = ?');
+    const result = userId == null ? stmt.run(binId) : stmt.run(binId, userId);
+    return Number(result.changes || 0);
+  },
   createAdminNotification: (adminUserId, binId, communityName, binName, message, level) => {
     const now = new Date().toISOString();
     const stmt = db.prepare(`

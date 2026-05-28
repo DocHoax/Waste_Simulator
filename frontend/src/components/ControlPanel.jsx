@@ -1,4 +1,4 @@
-export default function ControlPanel({ state, onSendCommand }) {
+export default function ControlPanel({ state, onSendCommand, canDelete = false }) {
   if (!state) {
     return (
       <div className="control-panel">
@@ -35,6 +35,11 @@ export default function ControlPanel({ state, onSendCommand }) {
         <button className="secondary-button" type="button" onClick={() => onSendCommand({ type: 'RESET' })}>
           Reset
         </button>
+        {canDelete ? (
+          <button className="dismiss-button" type="button" onClick={() => onSendCommand({ type: 'DELETE' })}>
+            Delete
+          </button>
+        ) : null}
       </div>
 
       <label className="control-field">

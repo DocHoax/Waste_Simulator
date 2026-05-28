@@ -290,6 +290,7 @@ export default function Dashboard() {
       START: `/api/bins/${selectedBin.id}/control/start`,
       STOP: `/api/bins/${selectedBin.id}/control/stop`,
       RESET: `/api/bins/${selectedBin.id}/control/reset`,
+      DELETE: `/api/bins/${selectedBin.id}`,
       SET_LEVEL: `/api/bins/${selectedBin.id}/control/set-level`,
       SET_FILL_RATE: `/api/bins/${selectedBin.id}/control/set-fill-rate`,
       SET_ALERT_THRESHOLD: `/api/bins/${selectedBin.id}/control/set-alert-threshold`
@@ -315,10 +316,31 @@ export default function Dashboard() {
       body.threshold = message.threshold;
     }
 
+    const method = message.type === 'DELETE' ? 'DELETE' : 'POST';
+
     await mutateState(`${apiBaseUrl}${endpoint}`, {
-      method: 'POST',
+      method,
       body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
     });
+
+    if (message.type === 'DELETE') {
+      setSimulatorState((currentState) => {
+        const nextBins = (currentState.bins || []).filter((bin) => bin.id !== selectedBin.id);
+        const fallbackSelectedBin = nextBins[0] || null;
+        const nextState = normalizeState({
+          ...currentState,
+          bins: nextBins,
+          selectedBinId: fallbackSelectedBin?.id ?? null,
+          selectedBin: fallbackSelectedBin,
+          totalBins: nextBins.length,
+          activeCommunities: new Set(nextBins.map((bin) => bin.communityName)).size,
+          runningBinsCount: nextBins.filter((bin) => bin.isRunning).length
+        });
+
+        lastSnapshotRef.current = getStateSignature(nextState);
+        return nextState;
+      });
+    }
   };
 
   const handleCreateBin = async (binPayload) => {
@@ -504,7 +526,7 @@ export default function Dashboard() {
 
         <aside className="right-column">
           <section className="panel controls-panel">
-            <ControlPanel state={selectedBin} onSendCommand={sendCommand} />
+            <ControlPanel state={selectedBin} onSendCommand={sendCommand} canDelete={user?.role === 'super_admin'} />
           </section>
 
           <section className="panel status-panel-wrap">
