@@ -10,7 +10,7 @@ import BinDirectory from './components/BinDirectory';
 import NotificationPanel from './components/NotificationPanel';
 import AdminNotificationPanel from './components/AdminNotificationPanel';
 
-const DEFAULT_LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+const DEFAULT_LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '5051';
 
 function createFallbackState() {
   return {
@@ -29,14 +29,14 @@ function createFallbackState() {
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5051';
   const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
 }
 
 function getApiBaseUrl() {
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5051';
   const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
 }

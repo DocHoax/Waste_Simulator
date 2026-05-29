@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 function getApiUrl() {
-  const port = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+  const port = import.meta.env.VITE_LOCAL_API_PORT || '5051';
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
   const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${port}`;
   return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
 }
 
 function getWebSocketUrl() {
-  const port = import.meta.env.VITE_LOCAL_API_PORT || '5050';
+  const port = import.meta.env.VITE_LOCAL_API_PORT || '5051';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${port}`;
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
