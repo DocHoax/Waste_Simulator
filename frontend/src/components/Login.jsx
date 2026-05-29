@@ -3,8 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
-  const [email, setEmail] = useState('admin@waste-system.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -70,9 +70,6 @@ export default function Login() {
           Create account
         </button>
 
-        <p className="auth-hint">
-          Demo account: admin@waste-system.com / admin123
-        </p>
       </div>
     </div>
   );

@@ -47,77 +47,8 @@ function getStatusForLevel(level, alertThreshold, maxCapacity) {
   return 'NORMAL';
 }
 
-function createDefaultBinTemplate() {
-  return {
-    communityName: process.env.DEFAULT_COMMUNITY_NAME || 'Community Hub',
-    binName: process.env.DEVICE_ID || 'BIN-001',
-    location: process.env.DEVICE_LOCATION || 'Zone 1',
-    currentLevel: 42,
-    maxCapacity: 100,
-    alertThreshold: clamp(readNumber(process.env.DEFAULT_ALERT_THRESHOLD, 80), 1, 100),
-    fillRate: clamp(readNumber(process.env.DEFAULT_FILL_RATE, 5), 0, 100),
-    isRunning: false,
-    status: 'NORMAL',
-    emptyCount: 0,
-    alertCount: 0
-  };
-}
-
-function createExampleBinTemplates() {
-  const templates = [
-    {
-      communityName: 'River District',
-      binName: 'BIN-014',
-      location: 'Market road corner',
-      currentLevel: 28,
-      maxCapacity: 100,
-      alertThreshold: 75,
-      fillRate: 4,
-      isRunning: true,
-      emptyCount: 1,
-      alertCount: 0
-    },
-    {
-      communityName: 'North Estate',
-      binName: 'BIN-021',
-      location: 'School gate',
-      currentLevel: 63,
-      maxCapacity: 100,
-      alertThreshold: 80,
-      fillRate: 2.5,
-      isRunning: false,
-      emptyCount: 0,
-      alertCount: 1
-    },
-    {
-      communityName: 'Harbor View',
-      binName: 'BIN-033',
-      location: 'Community hall entrance',
-      currentLevel: 84,
-      maxCapacity: 100,
-      alertThreshold: 82,
-      fillRate: 3.5,
-      isRunning: false,
-      emptyCount: 2,
-      alertCount: 3
-    }
-  ];
-
-  return templates.map((template) => ({
-    ...createDefaultBinTemplate(),
-    ...template,
-    status: getStatusForLevel(template.currentLevel, template.alertThreshold, template.maxCapacity),
-    createdAt: nowIso(),
-    updatedAt: nowIso()
-  }));
-}
-
 function createInitialBins() {
-  if (String(process.env.SEED_EXAMPLE_BINS || 'true').toLowerCase() === 'false') {
-    return [createDefaultBinTemplate()];
-  }
-
-  return createExampleBinTemplates();
+  return [];
 }
 
 const hydration = hydrateStateFromDatabase(createInitialBins());
@@ -668,19 +599,6 @@ app.post('/api/bins', (request, response) => {
   response.status(201).json({ success: true, bin: createdBin, state: serializeState() });
 });
 
-app.post('/api/seed', (request, response) => {
-  const createdBins = seedExampleBins();
-  response.status(createdBins.length > 0 ? 201 : 200).json({
-    success: true,
-    created: createdBins.length,
-    bins: createdBins,
-    state: serializeState(),
-    message: createdBins.length > 0
-      ? 'Example community bins seeded successfully.'
-      : 'All example community bins are already available.'
-  });
-});
-
 app.get('/api/bins/:binId', (request, response) => {
   const bin = getBinById(request.params.binId);
 
@@ -1081,23 +999,3 @@ webSocketServer.on('connection', (socket) => {
   });
 });
 
-function shutdown() {
-  for (const interval of simulationIntervals.values()) {
-    clearInterval(interval);
-  }
-
-  simulationIntervals.clear();
-  server.close(() => {
-    process.exit(0);
-  });
-}
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
-
-server.listen(PORT, () => {
-  console.log('Community Waste Bin Registry Backend');
-  console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`HTTP API: http://localhost:${PORT}/api`);
-});

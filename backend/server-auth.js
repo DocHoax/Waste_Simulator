@@ -217,42 +217,6 @@ app.delete('/api/bins/:binId', verifyToken, requireRole('super_admin'), (req, re
   return res.json({ success: true, deletedBinId: binId });
 });
 
-// ============ SEED ENDPOINT ============
-
-app.post('/api/seed', verifyToken, (req, res) => {
-  const exampleBins = [
-    { communityName: 'River District', binName: 'BIN-001', location: 'Main St & Oak Ave', fillRate: 4 },
-    { communityName: 'River District', binName: 'BIN-002', location: 'Park Ave & 5th St', fillRate: 3 },
-    { communityName: 'Harbor View', binName: 'BIN-033', location: 'Community Center', fillRate: 6 },
-    { communityName: 'Harbor View', binName: 'BIN-034', location: 'Harbor Plaza', fillRate: 5 }
-  ];
-
-  const createdBins = [];
-  for (const example of exampleBins) {
-    const bin = {
-      ...example,
-      currentLevel: 0,
-      maxCapacity: 100,
-      alertThreshold: 80,
-      isRunning: false,
-      status: 'NORMAL',
-      emptyCount: 0,
-      alertCount: 0,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    };
-
-    const binId = persistNewBinWithUser(bin, req.user.id);
-    bin.id = binId;
-    bin.userId = req.user.id;
-    appState.bins.push(bin);
-    createdBins.push(bin);
-  }
-
-  broadcastState('SEED_DATA_LOADED');
-  res.json({ success: true, bins: createdBins, message: `Created ${createdBins.length} example bins` });
-});
-
 // ============ CONTROL ENDPOINTS ============
 
 app.post('/api/bins/:binId/control/start', verifyToken, (req, res) => {
@@ -464,9 +428,7 @@ appState.bins = getAllBins();
 server.listen(PORT, () => {
   console.log(`\n🚀 Multi-Tenant Waste Simulator API running on http://localhost:${PORT}`);
   console.log(`📡 WebSocket available at ws://localhost:${PORT}`);
-  console.log(`\nDefault Super Admin Credentials:`);
-  console.log(`  Email: admin@waste-system.com`);
-  console.log(`  Password: admin123\n`);
+  console.log(`\nSuper admin account is initialized on first start if missing.\n`);
 });
 
 process.on('SIGINT', () => {
