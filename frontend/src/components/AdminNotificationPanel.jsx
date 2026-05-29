@@ -9,7 +9,7 @@ function getApiUrl() {
 }
 
 function getWebSocketUrl() {
-  const port = import.meta.env.VITE_LOCAL_API_PORT || '5051';
+  const port = import.meta.env.VITE_LOCAL_API_PORT || '5000';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${port}`;
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;

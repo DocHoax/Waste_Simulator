@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const AuthContext = createContext(null);
 
 function getApiUrl() {
-  return import.meta.env.VITE_API_URL || 'http://localhost:5051';
+  return import.meta.env.VITE_API_URL || 'http://localhost:5000';
 }
 
 export function AuthProvider({ children }) {

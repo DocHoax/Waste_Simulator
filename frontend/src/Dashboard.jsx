@@ -29,14 +29,14 @@ function createFallbackState() {
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5051';
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
   const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
 }
 
 function getApiBaseUrl() {
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5051';
+  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
   const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${fallbackPort}`;
   return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
 }

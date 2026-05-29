@@ -80,7 +80,8 @@ docker run -p 5000:5000 \
 
 # Run frontend (in another terminal)
 docker run -p 3000:3000 \
-  -e REACT_APP_API_URL=http://localhost:5000 \
+  -e VITE_API_URL=http://localhost:5000 \
+  -e VITE_WS_URL=ws://localhost:5000 \
   waste-simulator-frontend:latest
 ```
 
@@ -161,8 +162,8 @@ vercel
 In Vercel Dashboard:
 
 ```
-REACT_APP_API_URL=https://your-backend-url.herokuapp.com
-REACT_APP_WS_URL=wss://your-backend-url.herokuapp.com
+VITE_API_URL=https://your-backend-url.herokuapp.com
+VITE_WS_URL=wss://your-backend-url.herokuapp.com
 ```
 
 ### Update App Configuration
@@ -170,7 +171,7 @@ REACT_APP_WS_URL=wss://your-backend-url.herokuapp.com
 Update `frontend/src/App.jsx`:
 ```javascript
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsUrl = process.env.REACT_APP_WS_URL || `${protocol}//${window.location.hostname}:5000`;
+const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.hostname}:5000`;
 ```
 
 ---
@@ -300,7 +301,7 @@ cd waste-simulator
 # Start backend with PM2
 cd backend
 npm install
-pm2 start server.js --name "waste-backend"
+pm2 start server-auth.js --name "waste-backend"
 
 # Start frontend with PM2
 cd ../frontend
@@ -334,8 +335,8 @@ CORS_ORIGIN=https://your-frontend-domain.com
 ### Frontend (.env)
 
 ```env
-REACT_APP_API_URL=https://your-backend-url.com
-REACT_APP_WS_URL=wss://your-backend-url.com
+VITE_API_URL=https://your-backend-url.com
+VITE_WS_URL=wss://your-backend-url.com
 ```
 
 ---
@@ -430,7 +431,7 @@ aws logs tail /aws/elasticbeanstalk/waste-simulator/var/log/app.log --follow
 ```bash
 npm install newrelic
 
-# Add to server.js
+# Add to server-auth.js
 require('newrelic');
 ```
 
@@ -441,7 +442,7 @@ require('newrelic');
 ### Enable Compression
 
 ```javascript
-// In server.js
+// In server-auth.js
 const compression = require('compression');
 app.use(compression());
 ```
