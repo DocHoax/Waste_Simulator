@@ -104,6 +104,34 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+function startBinSimulation(bin, userId) {
+  if (!bin || simulationIntervals.has(bin.id) || !bin.isRunning) {
+    return;
+  }
+
+  const interval = setInterval(() => {
+    const currentBin = appState.bins.find((entry) => entry.id === bin.id);
+    if (!currentBin || !currentBin.isRunning) {
+      clearInterval(interval);
+      simulationIntervals.delete(bin.id);
+      return;
+    }
+
+    const increment = currentBin.fillRate * (CHECK_INTERVAL_MS / 60000);
+    updateBinLevel(currentBin, currentBin.currentLevel + increment, userId ?? currentBin.userId);
+  }, CHECK_INTERVAL_MS);
+
+  simulationIntervals.set(bin.id, interval);
+}
+
+function resumeRunningSimulations() {
+  for (const bin of appState.bins) {
+    if (bin.isRunning) {
+      startBinSimulation(bin, bin.userId);
+    }
+  }
+}
+
 // ============ AUTH ENDPOINTS ============
 
 app.post('/api/auth/register', (req, res) => {
@@ -181,6 +209,10 @@ app.post('/api/bins', verifyToken, (req, res) => {
   if (!appState.selectedBinId) {
     appState.selectedBinId = bin.id;
     persistSelectedBinId(bin.id);
+  }
+
+  if (bin.isRunning) {
+    startBinSimulation(bin, req.user.id);
   }
 
   res.status(201).json({ success: true, bin });
@@ -265,19 +297,7 @@ app.post('/api/bins/:binId/control/start', verifyToken, (req, res) => {
     bin.updatedAt = nowIso();
     persistBin(bin);
 
-    const interval = setInterval(() => {
-      const currentBin = appState.bins.find(b => b.id === bin.id);
-      if (!currentBin || !currentBin.isRunning) {
-        clearInterval(interval);
-        simulationIntervals.delete(bin.id);
-        return;
-      }
-
-      const increment = currentBin.fillRate * (CHECK_INTERVAL_MS / 60000);
-      updateBinLevel(currentBin, currentBin.currentLevel + increment, req.user.id);
-    }, CHECK_INTERVAL_MS);
-
-    simulationIntervals.set(bin.id, interval);
+    startBinSimulation(bin, req.user.id);
   }
 
   broadcastState('SIMULATION_STARTED');
@@ -458,6 +478,7 @@ app.get('/api/health', (req, res) => {
 // ============ START SERVER ============
 
 initializeSuperAdmin();
+resumeRunningSimulations();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Multi-Tenant Waste Simulator API running on http://localhost:${PORT}`);
