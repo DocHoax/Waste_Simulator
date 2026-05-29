@@ -21,6 +21,7 @@ const {
   acknowledgeAdminNotification,
   getSuperAdmin,
   getUnreadNotificationCount,
+  persistSelectedBinId,
   persistNewBinWithUser,
   MAX_EVENTS
 } = require('./db');
@@ -83,13 +84,15 @@ function requireRole(role) {
 }
 
 // Simulation state
+const hydration = hydrateStateFromDatabase([]);
 const appState = {
-  bins: [],
-  notifications: [],
-  events: []
+  bins: hydration.state.bins,
+  notifications: hydration.state.notifications,
+  events: hydration.state.events,
+  selectedBinId: hydration.state.selectedBinId
 };
 
-let nextEventId = 1;
+let nextEventId = hydration.nextEventId;
 const simulationIntervals = new Map();
 const connectedClients = new Map();
 
@@ -175,6 +178,10 @@ app.post('/api/bins', verifyToken, (req, res) => {
   bin.id = binId;
   bin.userId = req.user.id;
   appState.bins.push(bin);
+  if (!appState.selectedBinId) {
+    appState.selectedBinId = bin.id;
+    persistSelectedBinId(bin.id);
+  }
 
   res.status(201).json({ success: true, bin });
 });
@@ -182,6 +189,30 @@ app.post('/api/bins', verifyToken, (req, res) => {
 app.get('/api/bins', verifyToken, (req, res) => {
   const bins = req.user.role === 'super_admin' ? getAllBins() : getUserBins(req.user.id);
   res.json({ success: true, bins });
+});
+
+app.post('/api/bins/:binId/select', verifyToken, (req, res) => {
+  const binId = Number(req.params.binId);
+  const bin = appState.bins.find((entry) => entry.id === binId);
+
+  if (!bin || (req.user.role !== 'super_admin' && bin.userId !== req.user.id)) {
+    return res.status(404).json({ success: false, message: 'Bin not found' });
+  }
+
+  appState.selectedBinId = bin.id;
+  persistSelectedBinId(bin.id);
+  broadcastState('BIN_SELECTED');
+
+  return res.json({
+    success: true,
+    selectedBinId: bin.id,
+    state: {
+      bins: appState.bins,
+      selectedBinId: appState.selectedBinId,
+      notifications: appState.notifications,
+      events: appState.events
+    }
+  });
 });
 
 app.get('/api/bins/:binId', verifyToken, (req, res) => {
@@ -212,6 +243,10 @@ app.delete('/api/bins/:binId', verifyToken, requireRole('super_admin'), (req, re
   }
 
   appState.bins = appState.bins.filter((entry) => entry.id !== binId);
+  if (appState.selectedBinId === binId) {
+    appState.selectedBinId = appState.bins[0]?.id || null;
+    persistSelectedBinId(appState.selectedBinId);
+  }
   broadcastState('BIN_DELETED');
 
   return res.json({ success: true, deletedBinId: binId });
@@ -360,7 +395,7 @@ function broadcastState(reason) {
   const message = JSON.stringify({
     type: 'STATE_UPDATE',
     reason,
-    data: { bins: appState.bins, events: appState.events }
+    data: { bins: appState.bins, selectedBinId: appState.selectedBinId, events: appState.events }
   });
 
   for (const client of wss.clients) {
@@ -423,7 +458,6 @@ app.get('/api/health', (req, res) => {
 // ============ START SERVER ============
 
 initializeSuperAdmin();
-appState.bins = getAllBins();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Multi-Tenant Waste Simulator API running on http://localhost:${PORT}`);
