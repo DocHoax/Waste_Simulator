@@ -12,6 +12,43 @@ fs.mkdirSync(dataDirectory, { recursive: true });
 const db = new DatabaseSync(databasePath);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
+db.exec('PRAGMA busy_timeout = 5000;');
+
+function isSqliteBusyError(error) {
+  return Boolean(error) && (
+    error.code === 'ERR_SQLITE_BUSY' ||
+    error.code === 'SQLITE_BUSY' ||
+    /database is locked/i.test(error.message || '')
+  );
+}
+
+function sleepMs(milliseconds) {
+  const sharedBuffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(sharedBuffer);
+  Atomics.wait(view, 0, 0, milliseconds);
+}
+
+function runWithRetry(statement, parameters, retries = 5) {
+  let lastError;
+
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return Array.isArray(parameters)
+        ? statement.run(...parameters)
+        : statement.run(parameters);
+    } catch (error) {
+      lastError = error;
+
+      if (!isSqliteBusyError(error) || attempt === retries - 1) {
+        throw error;
+      }
+
+      sleepMs(50 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
 
 function hasColumn(tableName, columnName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all().some((row) => row.name === columnName);
@@ -361,14 +398,14 @@ function normalizeEvent(row) {
 }
 
 function persistSelectedBinId(selectedBinId) {
-  upsertAppStateStatement.run({
+  runWithRetry(upsertAppStateStatement, {
     selectedBinId,
     updatedAt: new Date().toISOString()
   });
 }
 
 function persistBin(bin) {
-  updateBinStatement.run({
+  runWithRetry(updateBinStatement, {
     id: bin.id,
     communityName: bin.communityName,
     binName: bin.binName,
@@ -388,7 +425,7 @@ function persistBin(bin) {
 function persistNewBin(bin) {
   const now = new Date().toISOString();
 
-  const result = insertBinStatement.run({
+  const result = runWithRetry(insertBinStatement, {
     communityName: bin.communityName,
     binName: bin.binName,
     location: bin.location,
@@ -408,7 +445,7 @@ function persistNewBin(bin) {
 }
 
 function persistNotification(notification) {
-  const result = insertNotificationStatement.run({
+  const result = runWithRetry(insertNotificationStatement, {
     binId: notification.binId,
     communityName: notification.communityName,
     binName: notification.binName,
@@ -421,14 +458,14 @@ function persistNotification(notification) {
 
   const excess = db.prepare('SELECT COUNT(*) AS count FROM notifications').get().count - MAX_NOTIFICATIONS;
   if (excess > 0) {
-    deleteOldNotificationsStatement.run(excess);
+    runWithRetry(deleteOldNotificationsStatement, [excess]);
   }
 
   return Number(result.lastInsertRowid);
 }
 
 function markNotificationAcknowledged(notificationId, acknowledgedBy = null, acknowledgedAt = new Date().toISOString()) {
-  markNotificationReadStatement.run({
+  runWithRetry(markNotificationReadStatement, {
     id: notificationId,
     acknowledgedAt
   });
@@ -441,7 +478,7 @@ function markNotificationRead(notificationId) {
 function persistEvent(event) {
   const { id, binId, communityName, binName, type, level, message, timestamp, ...extra } = event;
 
-  insertEventStatement.run({
+  runWithRetry(insertEventStatement, {
     id,
     binId,
     communityName,
@@ -455,7 +492,7 @@ function persistEvent(event) {
 
   const cutoffId = id - MAX_EVENTS + 1;
   if (cutoffId > 0) {
-    deleteOldEventsStatement.run(cutoffId);
+    runWithRetry(deleteOldEventsStatement, [cutoffId]);
   }
 }
 
@@ -473,8 +510,11 @@ function migrateLegacySnapshotIfNeeded() {
   persistSelectedBinId(binId);
 
   if (hasColumn('events', 'bin_id')) {
-    db.prepare('UPDATE events SET bin_id = ? WHERE bin_id IS NULL').run(binId);
-    db.prepare('UPDATE events SET community_name = COALESCE(community_name, ?), bin_name = COALESCE(bin_name, ?) WHERE bin_id = ?').run(binState.communityName, binState.binName, binId);
+    runWithRetry(db.prepare('UPDATE events SET bin_id = ? WHERE bin_id IS NULL'), [binId]);
+    runWithRetry(
+      db.prepare('UPDATE events SET community_name = COALESCE(community_name, ?), bin_name = COALESCE(bin_name, ?) WHERE bin_id = ?'),
+      [binState.communityName, binState.binName, binId]
+    );
   }
 }
 
@@ -560,7 +600,7 @@ module.exports = {
       INSERT INTO users (username, email, password_hash, community_name, role, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(username, email, passwordHash, communityName, role, now, now);
+    const result = runWithRetry(stmt, [username, email, passwordHash, communityName, role, now, now]);
     return Number(result.lastInsertRowid);
   },
   getUserByEmail: (email) => {
@@ -583,7 +623,7 @@ module.exports = {
     const stmt = userId == null
       ? db.prepare('DELETE FROM bins WHERE id = ?')
       : db.prepare('DELETE FROM bins WHERE id = ? AND user_id = ?');
-    const result = userId == null ? stmt.run(binId) : stmt.run(binId, userId);
+    const result = userId == null ? runWithRetry(stmt, [binId]) : runWithRetry(stmt, [binId, userId]);
     return Number(result.changes || 0);
   },
   createAdminNotification: (adminUserId, binId, communityName, binName, message, level) => {
@@ -592,7 +632,7 @@ module.exports = {
       INSERT INTO notifications (admin_user_id, bin_id, community_name, bin_name, message, level, is_read, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
     `);
-    const result = stmt.run(adminUserId, binId, communityName, binName, message, level, now);
+    const result = runWithRetry(stmt, [adminUserId, binId, communityName, binName, message, level, now]);
     return Number(result.lastInsertRowid);
   },
   getAdminNotifications: (adminUserId, limit = 100) => {
@@ -609,7 +649,7 @@ module.exports = {
     const stmt = db.prepare(`
       UPDATE notifications SET is_read = 1, acknowledged_at = ? WHERE id = ? AND admin_user_id = ?
     `);
-    stmt.run(new Date().toISOString(), notificationId, adminUserId);
+    runWithRetry(stmt, [new Date().toISOString(), notificationId, adminUserId]);
   },
   getSuperAdmin: () => {
     const stmt = db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1 LIMIT 1');
@@ -627,7 +667,7 @@ module.exports = {
         alert_threshold, fill_rate, is_running, status, empty_count, alert_count, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(
+    const result = runWithRetry(stmt, [
       userId,
       bin.communityName,
       bin.binName,
@@ -642,7 +682,7 @@ module.exports = {
       bin.alertCount,
       now,
       now
-    );
+    ]);
     return Number(result.lastInsertRowid);
   }
 };
