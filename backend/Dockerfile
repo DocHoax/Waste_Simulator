@@ -9,6 +9,6 @@ COPY server-auth.js ./
 COPY db.js ./
 COPY .env.example ./
 
-EXPOSE 5000
+EXPOSE 5051
 
 CMD ["npm", "start"]

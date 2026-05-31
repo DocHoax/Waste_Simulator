@@ -23,7 +23,7 @@ Complete instructions for deploying the simulator to production environments.
 # Install backend dependencies
 cd backend
 npm install
-npm start  # Runs on port 5000
+npm start  # Runs on port 5051
 
 # In another terminal, install frontend dependencies
 cd frontend
@@ -51,7 +51,7 @@ docker-compose up --build
 
 # Services will be available at:
 # Frontend: http://localhost:3000
-# Backend: http://localhost:5000
+# Backend: http://localhost:5051
 ```
 
 ---
@@ -74,14 +74,14 @@ docker build -t waste-simulator-frontend:latest .
 
 ```bash
 # Run backend
-docker run -p 5000:5000 \
+docker run -p 5051:5051 \
   -e NODE_ENV=production \
   waste-simulator-backend:latest
 
 # Run frontend (in another terminal)
 docker run -p 3000:3000 \
-  -e VITE_API_URL=http://localhost:5000 \
-  -e VITE_WS_URL=ws://localhost:5000 \
+  -e VITE_API_URL=http://localhost:5051 \
+  -e VITE_WS_URL=ws://localhost:5051 \
   waste-simulator-frontend:latest
 ```
 
@@ -175,7 +175,7 @@ The frontend is a client-side React Router app, so Vercel needs a rewrite to ser
 Use Render, Fly.io, or a VPS for the backend. Set these backend env vars:
 
 ```env
-PORT=5000
+PORT=5051
 JWT_SECRET=your-strong-secret
 CORS_ORIGIN=https://your-vercel-app.vercel.app
 ```
@@ -364,7 +364,7 @@ pm2 startup
 ### Backend (.env)
 
 ```env
-PORT=5000
+PORT=5051
 NODE_ENV=production
 DEVICE_ID=BIN-001
 DEVICE_LOCATION=Zone 1
@@ -436,7 +436,7 @@ server {
     }
     
     location /api {
-        proxy_pass http://localhost:5000;
+      proxy_pass http://localhost:5051;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -594,7 +594,7 @@ docker run image:backup
 
 For deployment issues:
 1. Check logs: `docker-compose logs -f`
-2. Test API: `curl http://localhost:5000/api/health`
+2. Test API: `curl http://localhost:5051/api/health`
 3. Check WebSocket: Browser DevTools → Network → WS
 4. Monitor resources: `pm2 monit`
 
