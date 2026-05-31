@@ -136,7 +136,25 @@ app.use(cors({
     }
 
     callback(new Error(`CORS blocked for origin: ${origin}`));
-  }
+  },
+  credentials: false,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Mode', 'X-Admin-Name'],
+  optionsSuccessStatus: 200
+}));
+app.options('*', cors({
+  origin(origin, callback) {
+    if (isAllowedCorsOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: false,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Mode', 'X-Admin-Name'],
+  optionsSuccessStatus: 200
 }));
 app.use(express.json());
 
