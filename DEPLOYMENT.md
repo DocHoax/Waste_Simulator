@@ -144,7 +144,7 @@ git push heroku main
 
 ## Vercel Deployment
 
-### Frontend Deployment
+### Frontend On Vercel
 
 ```bash
 # Install Vercel CLI
@@ -157,22 +157,39 @@ vercel
 # Follow prompts and select "y" to link to existing project or create new
 ```
 
-### Add Environment Variables
+### Configure Environment Variables
 
 In Vercel Dashboard:
 
 ```
-VITE_API_URL=https://your-backend-url.herokuapp.com
-VITE_WS_URL=wss://your-backend-url.herokuapp.com
+VITE_API_URL=https://your-api-host.example.com
+VITE_WS_URL=wss://your-api-host.example.com
 ```
 
-### Update App Configuration
+### Add SPA Routing
 
-Update `frontend/src/App.jsx`:
-```javascript
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.hostname}:5000`;
+The frontend is a client-side React Router app, so Vercel needs a rewrite to serve `index.html` for direct `/dashboard`, `/login`, and `/register` hits. This repo includes [frontend/vercel.json](frontend/vercel.json).
+
+### Deploy The Backend Separately
+
+Use Render, Railway, Fly.io, or a VPS for the backend. Set these backend env vars:
+
+```env
+PORT=5000
+JWT_SECRET=your-strong-secret
+CORS_ORIGIN=https://your-vercel-app.vercel.app
 ```
+
+### Build-Time Env Vars
+
+The frontend already reads these Vite env vars at build time. Set them in the Vercel project settings:
+
+```env
+VITE_API_URL=https://your-api-host.example.com
+VITE_WS_URL=wss://your-api-host.example.com
+```
+
+For local development, keep `frontend/.env.local` pointed at the local API host.
 
 ---
 

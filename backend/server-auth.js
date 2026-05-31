@@ -98,7 +98,11 @@ const connectedClients = new Map();
 
 // Express app
 const app = express();
-app.use(cors());
+const allowedCorsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : null;
+
+app.use(cors(allowedCorsOrigins ? { origin: allowedCorsOrigins } : undefined));
 app.use(express.json());
 
 const server = http.createServer(app);
