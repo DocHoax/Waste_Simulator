@@ -216,7 +216,7 @@ const insertNotificationStatement = db.prepare(`
     level,
     is_read,
     created_at,
-    read_at
+    acknowledged_at
   ) VALUES (
     @binId,
     @communityName,
@@ -225,12 +225,12 @@ const insertNotificationStatement = db.prepare(`
     @level,
     @isRead,
     @createdAt,
-    @readAt
+    @acknowledgedAt
   )
 `);
 const markNotificationReadStatement = db.prepare(`
   UPDATE notifications
-  SET is_read = 1, read_at = @readAt, acknowledged_by = @acknowledgedBy
+  SET is_read = 1, acknowledged_at = @acknowledgedAt
   WHERE id = @id
 `);
 const deleteOldNotificationsStatement = db.prepare(`
@@ -339,9 +339,8 @@ function serializeNotification(row) {
     level: roundToOneDecimal(row.level),
     isRead: Boolean(row.is_read),
     createdAt: row.created_at,
-    readAt: row.read_at,
-    acknowledgedAt: row.read_at,
-    acknowledgedBy: row.acknowledged_by || null
+    readAt: row.acknowledged_at,
+    acknowledgedAt: row.acknowledged_at
   };
 }
 
@@ -417,7 +416,7 @@ function persistNotification(notification) {
     level: roundToOneDecimal(notification.level),
     isRead: notification.isRead ? 1 : 0,
     createdAt: notification.createdAt,
-    readAt: notification.readAt || null
+    acknowledgedAt: notification.acknowledgedAt || notification.readAt || null
   });
 
   const excess = db.prepare('SELECT COUNT(*) AS count FROM notifications').get().count - MAX_NOTIFICATIONS;
@@ -431,8 +430,7 @@ function persistNotification(notification) {
 function markNotificationAcknowledged(notificationId, acknowledgedBy = null, acknowledgedAt = new Date().toISOString()) {
   markNotificationReadStatement.run({
     id: notificationId,
-    readAt: acknowledgedAt,
-    acknowledgedBy: acknowledgedBy || null
+    acknowledgedAt
   });
 }
 

@@ -146,25 +146,25 @@ git push heroku main
 
 ### Frontend On Vercel
 
-```bash
-# Install Vercel CLI
-npm install -g vercel
+1. Create a Vercel account and open the Vercel dashboard.
+2. Click `Add New...` and choose `Project`.
+3. Import the `Waste_Simulator` repository from GitHub.
+4. Set the project root directory to `frontend`.
+5. Leave the framework preset as Vite if Vercel does not auto-detect it.
+6. Set the build command to `npm run build`.
+7. Set the output directory to `dist`.
+8. Do not add a custom server command.
+9. Add these environment variables in the Vercel project settings:
 
-# Deploy
-cd frontend
-vercel
-
-# Follow prompts and select "y" to link to existing project or create new
-```
-
-### Configure Environment Variables
-
-In Vercel Dashboard:
-
-```
+```env
 VITE_API_URL=https://your-api-host.example.com
 VITE_WS_URL=wss://your-api-host.example.com
 ```
+
+10. Deploy the project.
+11. After the first deploy, open the production URL and confirm that `/login`, `/register`, and `/dashboard` all load directly.
+12. If direct routes 404, confirm that [frontend/vercel.json](frontend/vercel.json) is included in the deployed build.
+13. When the backend URL changes, update `VITE_API_URL` and `VITE_WS_URL` in Vercel and redeploy.
 
 ### Add SPA Routing
 
@@ -172,7 +172,7 @@ The frontend is a client-side React Router app, so Vercel needs a rewrite to ser
 
 ### Deploy The Backend Separately
 
-Use Render, Railway, Fly.io, or a VPS for the backend. Set these backend env vars:
+Use Render, Fly.io, or a VPS for the backend. Set these backend env vars:
 
 ```env
 PORT=5000
@@ -180,14 +180,41 @@ JWT_SECRET=your-strong-secret
 CORS_ORIGIN=https://your-vercel-app.vercel.app
 ```
 
-### Build-Time Env Vars
+### Render Backend Deployment
 
-The frontend already reads these Vite env vars at build time. Set them in the Vercel project settings:
+Use Render if you want the backend hosted separately with a simple web service and automatic HTTPS.
+
+1. Create a Render account and open the Render dashboard.
+2. Click `New +` and choose `Web Service`.
+3. Connect your GitHub repository for `Waste_Simulator`.
+4. Set the root directory to `backend`.
+5. Give the service a name such as `waste-simulator-backend`.
+6. Set the runtime to Node.
+7. Set the build command to `npm install`.
+8. Set the start command to `npm start`.
+9. Leave the port as the default Render runtime port; the app reads `process.env.PORT` automatically.
+10. Add these environment variables in the Render service settings:
 
 ```env
-VITE_API_URL=https://your-api-host.example.com
-VITE_WS_URL=wss://your-api-host.example.com
+JWT_SECRET=replace-with-a-long-random-secret
+CORS_ORIGIN=https://your-vercel-app.vercel.app
 ```
+
+11. Deploy the service.
+12. Copy the Render public URL, for example `https://waste-simulator-backend.onrender.com`.
+13. Confirm the backend health endpoint responds at `/api/health`.
+14. Confirm WebSocket traffic works against the Render URL.
+
+15. In Vercel, set these frontend environment variables:
+
+```env
+VITE_API_URL=https://waste-simulator-backend.onrender.com
+VITE_WS_URL=wss://waste-simulator-backend.onrender.com
+```
+
+16. Redeploy the frontend on Vercel.
+
+17. Open the Vercel frontend URL and sign in to confirm that login, bin creation, realtime updates, and notifications work.
 
 For local development, keep `frontend/.env.local` pointed at the local API host.
 
