@@ -11,6 +11,8 @@ import NotificationPanel from './components/NotificationPanel';
 import AdminNotificationPanel from './components/AdminNotificationPanel';
 
 const DEFAULT_LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '5051';
+const RENDER_API_URL = 'https://waste-simulator-backend.onrender.com';
+const RENDER_WS_URL = 'wss://waste-simulator-backend.onrender.com';
 
 function createFallbackState() {
   return {
@@ -28,17 +30,27 @@ function createFallbackState() {
 }
 
 function getWebSocketUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
-  const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${fallbackPort}`;
-  return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  if (import.meta.env.PROD) {
+    return RENDER_WS_URL;
+  }
+
+  return `ws://localhost:${DEFAULT_LOCAL_API_PORT}`;
 }
 
 function getApiBaseUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const fallbackPort = import.meta.env.DEV ? DEFAULT_LOCAL_API_PORT : '5000';
-  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${fallbackPort}`;
-  return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  if (import.meta.env.PROD) {
+    return RENDER_API_URL;
+  }
+
+  return `http://localhost:${DEFAULT_LOCAL_API_PORT}`;
 }
 
 function normalizeState(state) {

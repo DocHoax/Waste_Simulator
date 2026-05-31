@@ -99,8 +99,8 @@ git push heroku main
 9. Add these environment variables in the Vercel project settings:
 
 ```env
-VITE_API_URL=https://your-api-host.example.com
-VITE_WS_URL=wss://your-api-host.example.com
+VITE_API_URL=https://waste-simulator-backend.onrender.com
+VITE_WS_URL=wss://waste-simulator-backend.onrender.com
 ```
 
 10. Deploy the project.
@@ -118,8 +118,8 @@ Use Render, Fly.io, or a VPS for the backend. Set these backend env vars:
 
 ```env
 PORT=5051
-JWT_SECRET=your-strong-secret
-CORS_ORIGIN=https://your-vercel-app.vercel.app
+JWT_SECRET=replace-with-a-long-random-secret
+CORS_ORIGIN=https://waste-simulator-nine.vercel.app,https://waste-simulator-sooty.vercel.app
 ```
 
 ### Render Backend Deployment
@@ -139,7 +139,7 @@ Use Render if you want the backend hosted separately with a simple web service a
 
 ```env
 JWT_SECRET=replace-with-a-long-random-secret
-CORS_ORIGIN=https://your-vercel-app.vercel.app
+CORS_ORIGIN=https://waste-simulator-nine.vercel.app,https://waste-simulator-sooty.vercel.app
 ```
 
 11. Deploy the service.

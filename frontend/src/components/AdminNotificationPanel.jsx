@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
+const LOCAL_API_URL = 'http://localhost:5051';
+const LOCAL_WS_URL = 'ws://localhost:5051';
+const RENDER_API_URL = 'https://waste-simulator-backend.onrender.com';
+const RENDER_WS_URL = 'wss://waste-simulator-backend.onrender.com';
+
 function getApiUrl() {
-  const port = import.meta.env.VITE_LOCAL_API_PORT || '5051';
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const host = import.meta.env.VITE_API_HOST || `${window.location.hostname}:${port}`;
-  return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  return import.meta.env.PROD ? RENDER_API_URL : LOCAL_API_URL;
 }
 
 function getWebSocketUrl() {
-  const port = import.meta.env.VITE_LOCAL_API_PORT || '5000';
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = import.meta.env.VITE_WS_HOST || `${window.location.hostname}:${port}`;
-  return import.meta.env.VITE_WS_URL || `${protocol}//${host}`;
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  return import.meta.env.PROD ? RENDER_WS_URL : LOCAL_WS_URL;
 }
 
 export default function AdminNotificationPanel() {
