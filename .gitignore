@@ -1,8 +1,8 @@
 node_modules
 dist
 build
-.env
-.env.local
+# .env
+# .env.local
 .DS_Store
 backend/node_modules
 backend/data/*.db
