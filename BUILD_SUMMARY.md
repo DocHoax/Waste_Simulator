@@ -12,7 +12,6 @@ You now have a **fully functional, production-ready waste monitoring simulator**
 - **Event Logging System** tracking all activities
 - **REST API Endpoints** for alternative access
 - **Health Monitoring** and graceful shutdowns
-- **Docker Support** for easy deployment
 
 ### ✅ Complete Frontend
 - **React Dashboard** with Tailwind CSS styling
@@ -26,12 +25,12 @@ You now have a **fully functional, production-ready waste monitoring simulator**
 ### ✅ Documentation
 - **README.md** - Complete feature overview
 - **QUICKSTART.md** - Get running in 5 minutes
-- **DEPLOYMENT.md** - Deploy to production
+- **DEPLOYMENT.md** - Render backend + Vercel frontend deployment
 - **DEVELOPMENT.md** - Extend and customize
 
 ### ✅ DevOps & Deployment
-- **Docker Containers** for backend & frontend
-- **Docker Compose** for local development
+- **Render** for the backend API and WebSocket server
+- **Vercel** for the frontend SPA
 - **Environment Configuration** for easy customization
 - **Setup Script** for automated installation
 
@@ -48,13 +47,9 @@ waste-simulator/
 ├── 📄 DEVELOPMENT.md               ← Extend & customize
 ├── 📄 .gitignore                   ← Git ignore patterns
 ├── 📄 setup.sh                     ← Automated setup script
-├── 📄 docker-compose.yml           ← Docker composition
-│
 ├── 📁 backend/
-│   ├── 📄 server.js                ← Main Express app
-│   ├── 📄 server-advanced.js       ← Enhanced version with logging
+│   ├── 📄 server-auth.js           ← Main Express app
 │   ├── 📄 package.json             ← Backend dependencies
-│   ├── 📄 Dockerfile               ← Docker config
 │   └── 📄 .env.example             ← Configuration template
 │
 └── 📁 frontend/
@@ -63,7 +58,6 @@ waste-simulator/
     ├── 📄 tailwind.config.js       ← Tailwind CSS config
     ├── 📄 postcss.config.js        ← PostCSS config
     ├── 📄 index.html               ← HTML template
-    ├── 📄 Dockerfile               ← Docker config
     │
     └── 📁 src/
         ├── 📄 App.jsx              ← Main app component
@@ -82,21 +76,20 @@ waste-simulator/
 
 ## 🚀 Three Ways to Get Started
 
-### 1️⃣ Docker Compose (Easiest) ⭐ RECOMMENDED
+### 1️⃣ Local Development (Easiest) ⭐ RECOMMENDED
 
 ```bash
 cd waste-simulator
-docker-compose up
-# Open http://localhost:3000
+cd backend && npm install && npm start
+cd frontend && npm install && npm run dev
 ```
 
 **Pros:**
-- ✅ One command to run everything
-- ✅ No installation issues
-- ✅ Exact production setup
-- ✅ Easy to deploy
+- ✅ Uses the same backend and frontend stack as production
+- ✅ Simple environment variable setup
+- ✅ Easy to debug
 
-**Requires:** Docker & Docker Compose
+**Requires:** Node.js and npm
 
 ---
 
@@ -107,27 +100,6 @@ cd waste-simulator
 chmod +x setup.sh
 ./setup.sh
 # Follow printed instructions
-```
-
-**Pros:**
-- ✅ Fully automated
-- ✅ Clear instructions
-- ✅ Handles all setup
-
-**Requires:** Node.js 16+
-
----
-
-### 3️⃣ Manual Setup (Most Control)
-
-```bash
-# Terminal 1 - Backend
-cd backend
-npm install
-npm start
-
-# Terminal 2 - Frontend (in new terminal)
-cd frontend
 npm install
 npm run dev
 ```
@@ -152,7 +124,6 @@ npm run dev
 | Alert System | ✅ Complete | AlertNotification.jsx |
 | Event History | ✅ Complete | HistoryPanel.jsx |
 | REST API | ✅ Complete | server.js |
-| Docker Support | ✅ Complete | Dockerfile(s) |
 | Responsive Design | ✅ Complete | Tailwind CSS |
 | Production Ready | ✅ Complete | Error handling, logging |
 
@@ -174,10 +145,9 @@ npm run dev
 - **Real-time:** WebSocket client
 
 ### DevOps
-- **Containerization:** Docker
-- **Orchestration:** Docker Compose
+- **Hosting:** Render backend, Vercel frontend
 - **Package Manager:** npm
-- **Scripting:** Bash
+- **Scripting:** npm scripts
 
 ---
 
@@ -213,7 +183,7 @@ This simulator teaches:
 1. **WebSocket Communication** - Real-time client-server
 2. **React Hooks** - State management, effects, refs
 3. **Express.js** - Building HTTP APIs
-4. **Docker** - Containerization & deployment
+4. **Render/Vercel** - Split deployment & hosting
 5. **Tailwind CSS** - Modern UI design
 6. **Frontend Architecture** - Component composition
 7. **Backend Architecture** - Event-driven systems
@@ -265,21 +235,19 @@ const wsUrl = 'ws://localhost:5000';
 - ✅ **Sound Alerts**: Browser audio notifications
 
 ### DevOps Highlights
-- ✅ **Docker Ready**: Production-grade containers
-- ✅ **Docker Compose**: One-command deployment
+- ✅ **Render Backend**: Production API and WebSocket host
+- ✅ **Vercel Frontend**: Static SPA deployment
 - ✅ **Environment Config**: Flexible configuration
-- ✅ **Health Checks**: Container monitoring
-- ✅ **Multi-stage Builds**: Optimized images
+- ✅ **Health Checks**: Service monitoring
 
 ---
 
 ## 🎯 Next Steps
 
 ### Immediate (Now)
-1. Choose setup method (Docker Compose recommended)
-2. Run the simulator
-3. Test all controls
-4. Open browser to http://localhost:3000
+1. Run the simulator locally or deploy the split stack
+2. Test all controls
+3. Open browser to http://localhost:3000
 
 ### Short Term (This Week)
 1. Understand the architecture (DEVELOPMENT.md)
@@ -321,7 +289,7 @@ The simulator proves the concept works perfectly. When you're ready, we can inte
 See **DEPLOYMENT.md** for instructions on:
 - Heroku (free tier available)
 - Vercel (frontend)
-- Docker (any cloud provider)
+- Render (backend)
 - AWS, DigitalOcean, Netlify, etc.
 
 ---
@@ -352,12 +320,13 @@ You have a **production-ready waste monitoring simulator** with:
 - ✅ Real-time WebSocket communication
 - ✅ Professional UI/UX
 - ✅ Complete documentation
-- ✅ Docker deployment ready
+- ✅ Render/Vercel deployment ready
 
 ### Start Here:
 ```bash
 cd waste-simulator
-docker-compose up
+cd backend && npm start
+cd frontend && npm run dev
 # Open http://localhost:3000
 ```
 
@@ -373,22 +342,18 @@ Good luck with your client! 🚀
 
 ```bash
 # Setup
-docker-compose up              # Full stack
 npm install && npm start       # Backend only
 npm run dev                    # Frontend only
 
 # Development
 npm run build                  # Build frontend
-docker-compose logs -f         # Watch logs
-docker-compose down            # Stop everything
 
 # Testing
-curl http://localhost:5000/api/health
-wscat -c ws://localhost:5000
+curl http://localhost:5051/api/health
+wscat -c ws://localhost:5051
 
 # Deployment
-docker-compose up -d           # Run in background
-docker push image:tag          # Push to registry
+Deploy backend on Render and frontend on Vercel
 ```
 
 ---

@@ -7,11 +7,10 @@ Complete instructions for deploying the simulator to production environments.
 ## 📋 Table of Contents
 
 1. [Local Deployment](#local-deployment)
-2. [Docker Deployment](#docker-deployment)
-3. [Heroku Deployment](#heroku-deployment)
-4. [Vercel Deployment](#vercel-deployment)
-5. [AWS Deployment](#aws-deployment)
-6. [DigitalOcean Deployment](#digitalocean-deployment)
+2. [Heroku Deployment](#heroku-deployment)
+3. [Vercel Deployment](#vercel-deployment)
+4. [AWS Deployment](#aws-deployment)
+5. [DigitalOcean Deployment](#digitalocean-deployment)
 
 ---
 
@@ -42,63 +41,6 @@ chmod +x setup.sh
 
 # Follow the instructions printed by the script
 ```
-
-### Option 3: Docker Compose (Recommended)
-
-```bash
-# Build and start both services
-docker-compose up --build
-
-# Services will be available at:
-# Frontend: http://localhost:3000
-# Backend: http://localhost:5051
-```
-
----
-
-## Docker Deployment
-
-### Build Docker Images
-
-```bash
-# Build backend image
-cd backend
-docker build -t waste-simulator-backend:latest .
-
-# Build frontend image
-cd frontend
-docker build -t waste-simulator-frontend:latest .
-```
-
-### Run with Docker
-
-```bash
-# Run backend
-docker run -p 5051:5051 \
-  -e NODE_ENV=production \
-  waste-simulator-backend:latest
-
-# Run frontend (in another terminal)
-docker run -p 3000:3000 \
-  -e VITE_API_URL=http://localhost:5051 \
-  -e VITE_WS_URL=ws://localhost:5051 \
-  waste-simulator-frontend:latest
-```
-
-### Docker Compose (Complete Stack)
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
----
 
 ## Heroku Deployment
 
@@ -569,13 +511,6 @@ heroku rollback v123
 # Settings → Deployment History → Rollback
 ```
 
-### Docker
-```bash
-# Keep multiple versions tagged
-docker tag image:new image:backup
-docker run image:backup
-```
-
 ---
 
 ## Cost Optimization
@@ -593,7 +528,7 @@ docker run image:backup
 ## Support
 
 For deployment issues:
-1. Check logs: `docker-compose logs -f`
+1. Check Render logs in the dashboard
 2. Test API: `curl http://localhost:5051/api/health`
 3. Check WebSocket: Browser DevTools → Network → WS
 4. Monitor resources: `pm2 monit`

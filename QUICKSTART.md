@@ -14,24 +14,7 @@ Get the waste level monitoring simulator up and running in minutes.
 
 ## ✅ Install & Run
 
-### Option 1: Fastest (Docker Compose)
-
-```bash
-# Clone/download the project
-cd waste-simulator
-
-# Start everything with Docker
-docker-compose up
-
-# Open browser
-http://localhost:3000
-```
-
-**That's it!** Backend runs on port 5000, frontend on 3000.
-
----
-
-### Option 2: Manual Setup (5 mins)
+### Local Setup (5 mins)
 
 #### Terminal 1: Backend
 
@@ -44,8 +27,8 @@ npm start
 You'll see:
 ```
 ✅ Waste Monitoring Simulator Backend
-   Server running on port 5000
-   WebSocket: ws://localhost:5000
+  Server running on port 5051
+  WebSocket: ws://localhost:5051
 ```
 
 #### Terminal 2: Frontend
@@ -94,12 +77,12 @@ ws.send(JSON.stringify({ type: 'START' }));
 
 ### Get Current State (REST)
 ```bash
-curl http://localhost:5000/api/state
+curl http://localhost:5051/api/health
 ```
 
 ### Set Waste Level (REST)
 ```bash
-curl -X POST http://localhost:5000/api/control/set-level \
+curl -X POST http://localhost:5051/api/control/set-level \
   -H "Content-Type: application/json" \
   -d '{"level": 50}'
 ```
@@ -110,15 +93,15 @@ curl -X POST http://localhost:5000/api/control/set-level \
 
 ### Port Already in Use
 ```bash
-# Find process using port 5000
-lsof -i :5000
+# Find process using port 5051
+lsof -i :5051
 
 # Kill it (macOS/Linux)
 kill -9 <PID>
 ```
 
 ### WebSocket Connection Failed
-- Check if backend is running on port 5000
+- Check if backend is running on port 5051
 - Refresh browser page
 - Check browser console (F12)
 
@@ -135,8 +118,8 @@ npm install
 
 ```
 waste-simulator/
-├── backend/        ← Express server (port 5000)
-│   └── server.js
+├── backend/        ← Express server (port 5051 locally)
+│   └── server-auth.js
 ├── frontend/       ← React app (port 3000)
 │   └── src/
 └── README.md
@@ -146,9 +129,9 @@ waste-simulator/
 
 ## 🚀 Next Steps
 
-- **Deploy**: See [DEPLOYMENT.md](DEPLOYMENT.md)
-- **Extend**: See [DEVELOPMENT.md](DEVELOPMENT.md)
-- **Full Setup**: See [README.md](README.md)
+- **Deploy backend**: See [DEPLOYMENT.md](DEPLOYMENT.md)
+- **Extend the app**: See [DEVELOPMENT.md](DEVELOPMENT.md)
+- **Project overview**: See [README.md](README.md)
 
 ---
 
@@ -166,17 +149,11 @@ waste-simulator/
 ## 📞 Common Commands
 
 ```bash
-# View backend logs
-docker-compose logs backend -f
+# Start backend locally
+cd backend && npm start
 
-# View frontend logs
-docker-compose logs frontend -f
-
-# Stop everything
-docker-compose down
-
-# Restart specific service
-docker-compose restart backend
+# Start frontend locally
+cd frontend && npm run dev
 ```
 
 ---

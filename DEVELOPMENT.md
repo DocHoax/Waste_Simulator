@@ -11,7 +11,7 @@ A comprehensive guide for developers to understand, extend, and maintain the sim
 ```
 ┌─────────────────┐         ┌──────────────────┐         ┌──────────────────┐
 │  React Frontend │◄───────►│  Express Backend │◄───────►│  Simulator Logic │
-│  (Port 3000)    │ WebSocket│  (Port 5000)     │ State   │ (In-Memory)      │
+│  (Port 3000)    │ WebSocket│  (Port 5051)     │ State   │ (In-Memory)      │
 └─────────────────┘         └──────────────────┘         └──────────────────┘
        │                            │                             │
        │                            │                             │
@@ -52,9 +52,8 @@ Backend Message Handler
 
 ```
 backend/
-├── server.js              # Main Express server + simulator logic
+├── server-auth.js         # Main Express server + auth + simulator logic
 ├── package.json           # Dependencies
-├── Dockerfile            # Docker configuration
 └── .env.example          # Environment variables template
 ```
 
@@ -129,7 +128,7 @@ function startSimulation() {
 
 ```javascript
 useEffect(() => {
-  const ws = new WebSocket('ws://localhost:5000');
+  const ws = new WebSocket('ws://localhost:5051');
   
   ws.onmessage = (event) => {
     const message = JSON.parse(event.data);
