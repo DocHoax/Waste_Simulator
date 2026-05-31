@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const cors = require('cors');
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const bcryptjs = require('bcryptjs');
@@ -128,34 +127,23 @@ function isAllowedCorsOrigin(origin) {
   return false;
 }
 
-app.use(cors({
-  origin(origin, callback) {
-    if (isAllowedCorsOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
 
-    callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Mode', 'X-Admin-Name'],
-  optionsSuccessStatus: 200
-}));
-app.options('*', cors({
-  origin(origin, callback) {
-    if (isAllowedCorsOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
+  if (isAllowedCorsOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Mode, X-Admin-Name');
+  }
 
-    callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Mode', 'X-Admin-Name'],
-  optionsSuccessStatus: 200
-}));
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+
+  next();
+});
 app.use(express.json());
 
 const server = http.createServer(app);
