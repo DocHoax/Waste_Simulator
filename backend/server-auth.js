@@ -98,11 +98,46 @@ const connectedClients = new Map();
 
 // Express app
 const app = express();
+
 const allowedCorsOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : null;
+  : [];
 
-app.use(cors(allowedCorsOrigins ? { origin: allowedCorsOrigins } : undefined));
+function isAllowedCorsOrigin(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedCorsOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const parsedOrigin = new URL(origin);
+    if (parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1') {
+      return true;
+    }
+
+    if (parsedOrigin.hostname.endsWith('.vercel.app')) {
+      return true;
+    }
+  } catch (error) {
+    return false;
+  }
+
+  return false;
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    if (isAllowedCorsOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  }
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
