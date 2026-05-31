@@ -129,12 +129,18 @@ function isAllowedCorsOrigin(origin) {
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+  const requestHeaders = req.headers['access-control-request-headers'];
 
-  if (isAllowedCorsOrigin(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    requestHeaders || 'Content-Type, Authorization, X-Admin-Mode, X-Admin-Name'
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  if (origin) {
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Mode, X-Admin-Name');
   }
 
   if (req.method === 'OPTIONS') {
