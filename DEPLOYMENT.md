@@ -99,8 +99,8 @@ git push heroku main
 9. Add these environment variables in the Vercel project settings:
 
 ```env
-VITE_API_URL=https://waste-simulator-backend.onrender.com
-VITE_WS_URL=wss://waste-simulator-backend.onrender.com
+VITE_API_URL=https://waste-simulator.onrender.com
+VITE_WS_URL=wss://waste-simulator.onrender.com
 ```
 
 10. Deploy the project.
@@ -150,8 +150,8 @@ CORS_ORIGIN=https://waste-simulator-nine.vercel.app,https://waste-simulator-soot
 15. In Vercel, set these frontend environment variables:
 
 ```env
-VITE_API_URL=https://waste-simulator-backend.onrender.com
-VITE_WS_URL=wss://waste-simulator-backend.onrender.com
+VITE_API_URL=https://waste-simulator.onrender.com
+VITE_WS_URL=wss://waste-simulator.onrender.com
 ```
 
 16. Redeploy the frontend on Vercel.

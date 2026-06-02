@@ -11,8 +11,8 @@ import NotificationPanel from './components/NotificationPanel';
 import AdminNotificationPanel from './components/AdminNotificationPanel';
 
 const DEFAULT_LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '5051';
-const RENDER_API_URL = 'https://waste-simulator-backend.onrender.com';
-const RENDER_WS_URL = 'wss://waste-simulator-backend.onrender.com';
+const RENDER_API_URL = 'https://waste-simulator.onrender.com';
+const RENDER_WS_URL = 'wss://waste-simulator.onrender.com';
 
 function createFallbackState() {
   return {

@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const AuthContext = createContext(null);
 
 const LOCAL_API_URL = 'http://localhost:5051';
-const RENDER_API_URL = 'https://waste-simulator-backend.onrender.com';
+const RENDER_API_URL = 'https://waste-simulator.onrender.com';
 
 function getApiUrl() {
   if (import.meta.env.VITE_API_URL) {
