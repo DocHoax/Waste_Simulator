@@ -1,84 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-
-const LOCAL_API_URL = 'http://localhost:5051';
-const LOCAL_WS_URL = 'wss://localhost:5051';
-const RENDER_API_URL = 'https://waste-simulator.onrender.com';
-const RENDER_WS_URL = 'wss://waste-simulator.onrender.com';
-
-function getApiUrl() {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-
-  return import.meta.env.PROD ? RENDER_API_URL : LOCAL_API_URL;
-}
-
-function getWebSocketUrl() {
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-
-  return import.meta.env.PROD ? RENDER_WS_URL : LOCAL_WS_URL;
-}
 
 export default function AdminNotificationPanel() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [expandedId, setExpandedId] = useState(null);
-  const { token } = useAuth();
 
   // Fetch notifications on mount
   useEffect(() => {
     fetchNotifications();
-    // Poll for new notifications
-    const interval = setInterval(fetchNotifications, 5000);
+    // Poll for new notifications in local storage
+    const interval = setInterval(fetchNotifications, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  // WebSocket for real-time updates
-  useEffect(() => {
-    const ws = new WebSocket(getWebSocketUrl());
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'ADMIN_NOTIFICATION') {
-          // New notification arrived - refresh list
-          fetchNotifications();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-
-    ws.onerror = (err) => console.error('WebSocket error:', err);
-    return () => ws.close();
-  }, []);
-
-  const fetchNotifications = async () => {
+  const fetchNotifications = () => {
     try {
-      const res = await fetch(`${getApiUrl()}/api/admin/notifications`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
-      }
+      const rawNotifications = JSON.parse(localStorage.getItem('waste_notifications') || '[]');
+      const mapped = rawNotifications.map(n => ({
+        id: n.id,
+        bin_id: n.binId,
+        community_name: n.communityName,
+        bin_name: n.binName,
+        message: n.message,
+        level: n.level,
+        is_read: n.isRead,
+        created_at: n.createdAt,
+        acknowledged_at: n.acknowledgedAt
+      }));
+      setNotifications(mapped);
+      setUnreadCount(mapped.filter(n => !n.is_read).length);
     } catch (err) {
-      console.error('Failed to fetch notifications:', err);
+      console.error('Failed to load notifications:', err);
     }
   };
 
-  const handleAcknowledge = async (notificationId) => {
+  const handleAcknowledge = (notificationId) => {
     try {
-      const res = await fetch(`${getApiUrl()}/api/admin/notifications/${notificationId}/acknowledge`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        await fetchNotifications();
+      const rawNotifications = JSON.parse(localStorage.getItem('waste_notifications') || '[]');
+      const targetIdx = rawNotifications.findIndex(n => n.id === notificationId);
+      if (targetIdx !== -1) {
+        rawNotifications[targetIdx] = {
+          ...rawNotifications[targetIdx],
+          isRead: true,
+          acknowledgedAt: new Date().toISOString()
+        };
+        localStorage.setItem('waste_notifications', JSON.stringify(rawNotifications));
+        fetchNotifications();
         setExpandedId(null);
       }
     } catch (err) {

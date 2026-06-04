@@ -10,3 +10,4 @@ backend/data/*.db-shm
 backend/data/*.db-wal
 frontend/node_modules
 *.log
+.vercel

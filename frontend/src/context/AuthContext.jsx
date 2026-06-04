@@ -2,39 +2,55 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-const LOCAL_API_URL = 'http://localhost:5051';
-const RENDER_API_URL = 'https://waste-simulator.onrender.com';
-
-function getApiUrl() {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+// Helper to get users from localStorage or initialize default super admin
+function getMockUsers() {
+  const usersJson = localStorage.getItem('waste_users');
+  if (usersJson) {
+    return JSON.parse(usersJson);
   }
-
-  return import.meta.env.PROD ? RENDER_API_URL : LOCAL_API_URL;
+  
+  // Default super admin user
+  const defaultAdmin = {
+    id: 'user-admin-id',
+    username: 'admin',
+    email: 'admin@waste-system.com',
+    password: 'admin123',
+    role: 'super_admin',
+    communityName: 'System Admin'
+  };
+  
+  const initialUsers = [defaultAdmin];
+  localStorage.setItem('waste_users', JSON.stringify(initialUsers));
+  return initialUsers;
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
-  const [loading, setLoading] = useState(!!token);
+  const [loading, setLoading] = useState(true);
 
   // On mount, verify token if exists
   useEffect(() => {
     if (token) {
-      verifyToken();
+      verifyToken(token);
     } else {
       setLoading(false);
     }
   }, [token]);
 
-  const verifyToken = async () => {
+  const verifyToken = (currentToken) => {
     try {
-      const res = await fetch(`${getApiUrl()}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
+      const users = getMockUsers();
+      // Token is just the user's ID in this mock setup
+      const foundUser = users.find(u => u.id === currentToken);
+      if (foundUser) {
+        setUser({
+          id: foundUser.id,
+          username: foundUser.username,
+          email: foundUser.email,
+          role: foundUser.role,
+          communityName: foundUser.communityName
+        });
       } else {
         logout();
       }
@@ -47,32 +63,69 @@ export function AuthProvider({ children }) {
   };
 
   const login = async (email, password) => {
-    const res = await fetch(`${getApiUrl()}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const users = getMockUsers();
+    const foundUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (!foundUser || foundUser.password !== password) {
+      throw new Error('Invalid credentials');
+    }
+    
+    const mockToken = foundUser.id;
+    setToken(mockToken);
+    setUser({
+      id: foundUser.id,
+      username: foundUser.username,
+      email: foundUser.email,
+      role: foundUser.role,
+      communityName: foundUser.communityName
     });
-    if (!res.ok) throw new Error('Login failed');
-    const data = await res.json();
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem('auth_token', data.token);
-    return data;
+    localStorage.setItem('auth_token', mockToken);
+    
+    return { token: mockToken, user: foundUser };
   };
 
   const register = async (username, email, password, communityName) => {
-    const res = await fetch(`${getApiUrl()}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password, communityName })
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const users = getMockUsers();
+    const emailExists = users.some(u => u.email.toLowerCase() === email.toLowerCase());
+    if (emailExists) {
+      throw new Error('Email is already registered');
+    }
+    
+    const usernameExists = users.some(u => u.username.toLowerCase() === username.toLowerCase());
+    if (usernameExists) {
+      throw new Error('Username is already taken');
+    }
+
+    const newUser = {
+      id: 'user-' + Math.random().toString(36).substr(2, 9),
+      username,
+      email,
+      password,
+      role: 'community_manager',
+      communityName: communityName || username
+    };
+    
+    users.push(newUser);
+    localStorage.setItem('waste_users', JSON.stringify(users));
+    
+    const mockToken = newUser.id;
+    setToken(mockToken);
+    setUser({
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      role: newUser.role,
+      communityName: newUser.communityName
     });
-    if (!res.ok) throw new Error('Registration failed');
-    const data = await res.json();
-    setToken(data.token);
-    localStorage.setItem('auth_token', data.token);
-    // Fetch user details
-    await verifyToken();
-    return data;
+    localStorage.setItem('auth_token', mockToken);
+    
+    return { token: mockToken, user: newUser };
   };
 
   const logout = () => {
